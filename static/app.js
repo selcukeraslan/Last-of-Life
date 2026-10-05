@@ -7,7 +7,7 @@ const api = async (url, opts) => {
   return r.json();
 };
 
-const state = { league: localStorage.getItem("league") || "tur.1", tab: "matches", leagues: [], model: {} };
+const state = { league: localStorage.getItem("league") || "tur.1", tab: "matches", leagues: [], model: {}, couponDate: new Date().toISOString().slice(0, 10) };
 
 function fmtTime(iso) { return new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }); }
 function fmtDay(iso) { return new Date(iso).toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long" }); }
@@ -73,6 +73,17 @@ async function renderPicks() {
       <td>${fmtDateTime(p.kickoff)}</td><td><span class="badge b-info">${esc(p.pick.market)}</span></td>
       <td>${pct(p.pick.p)}</td><td>${oddsValue(p.iddaa_odds[p.pick.market], p.pick.suggested)}</td><td>${confBadge(p.confidence_label)}</td></tr>`).join("")}
   </table><p class="muted">Kombine kuponda olasılıklar çarpılır: 3 maçlık %70'lik kupon ≈ %34 tutar.</p></div>`;
+}
+
+function couponCard(c, title, cls) {
+  const rows = c.picks.length ? c.picks.map((p) => `<tr><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td><td>${fmtDateTime(p.kickoff)}</td><td><span class="badge ${cls}">${esc(p.market)}</span></td><td>${p.odds}</td><td>${pct(p.model_probability)}</td></tr>`).join("") : `<tr><td colspan="6" class="muted">Bu gün uygun seçim bulunamadı.</td></tr>`;
+  return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span class="badge ${cls}">${c.picks.length} maç</span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Model</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
+}
+
+async function renderCoupons() {
+  const el = $("#coupons"); el.innerHTML = `<p class="muted">Kuponlar hesaplanıyor…</p>`;
+  const d = await api(`/api/coupons?day=${state.couponDate}`);
+  el.innerHTML = `<p class="muted">${fmtDay(d.date + "T12:00:00Z")} · tüm ligler</p>` + couponCard(d.banko, "Banko Kupon", "b-good") + couponCard(d.surprise, "Sürpriz Kupon", "b-warn");
 }
 
 async function renderTable() {
@@ -195,6 +206,7 @@ async function render() {
     if (state.tab === "matches") await renderMatches();
     if (state.tab === "picks") await renderPicks();
     if (state.tab === "table") await renderTable();
+    if (state.tab === "coupons") await renderCoupons();
     if (state.tab === "model") await renderModel();
   } catch (e) {
     $(`#tab-${state.tab}`).insertAdjacentHTML("afterbegin", `<div class="card" style="color:var(--bad)">Hata: ${esc(e.message)}</div>`);
@@ -246,6 +258,11 @@ $("#btnUpdate").addEventListener("click", async () => { await api("/api/update",
 $("#btnBacktest").addEventListener("click", async () => { await api("/api/backtest", { method: "POST" }); renderModel(); });
 $("#pickDays").addEventListener("change", renderPicks);
 $("#pickConf").addEventListener("change", renderPicks);
+$("#couponDate").value = state.couponDate;
+$("#couponDate").addEventListener("change", (e) => { state.couponDate = e.target.value; renderCoupons(); });
+function shiftCouponDay(n) { const d = new Date(state.couponDate + "T12:00:00"); d.setDate(d.getDate() + n); state.couponDate = d.toISOString().slice(0, 10); $("#couponDate").value = state.couponDate; renderCoupons(); }
+$("#couponPrev").addEventListener("click", () => shiftCouponDay(-1));
+$("#couponNext").addEventListener("click", () => shiftCouponDay(1));
 
 (async () => {
   await loadLeagues();

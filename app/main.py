@@ -2,7 +2,7 @@
 import json
 import threading
 from contextlib import asynccontextmanager
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timedelta, timezone, date
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -12,6 +12,7 @@ from . import updater
 from .config import LEAGUES, MODEL, STATIC_DIR
 from .db import get_meta, init_db, session
 from .model import engine
+from .model.coupons import build_coupons
 from .model.ratings import parse_ts
 
 AUTO_UPDATE_HOURS = 6
@@ -117,6 +118,15 @@ def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0):
                             "score": p["pick"]["p"] * (0.5 + p["confidence"])})
     out.sort(key=lambda x: -x["score"])
     return _attach_iddaa_odds(out)
+
+
+@app.get("/api/coupons")
+def coupons(day: str | None = Query(None, description="YYYY-MM-DD; varsayılan yerel bugün")):
+    try:
+        target = date.fromisoformat(day) if day else datetime.now().astimezone().date()
+    except ValueError as exc:
+        raise HTTPException(400, "Gün YYYY-AA-GG biçiminde olmalı") from exc
+    return build_coupons(target)
 
 
 @app.post("/api/update")
