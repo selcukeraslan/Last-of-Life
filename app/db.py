@@ -40,6 +40,27 @@ CREATE TABLE IF NOT EXISTS fetch_log (
     PRIMARY KEY (league, day)
 );
 
+CREATE TABLE IF NOT EXISTS iddaa_events (
+    id TEXT PRIMARY KEY,
+    league TEXT NOT NULL,
+    competition_id INTEGER NOT NULL,
+    kickoff TEXT NOT NULL,          -- ISO UTC
+    home TEXT NOT NULL,
+    away TEXT NOT NULL,
+    match_id TEXT,                  -- eşleşen ESPN matches.id
+    match_score REAL,
+    updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS ix_iddaa_events_match ON iddaa_events(match_id);
+
+CREATE TABLE IF NOT EXISTS iddaa_odds (
+    event_id TEXT NOT NULL,
+    market TEXT NOT NULL,
+    odd REAL NOT NULL,
+    PRIMARY KEY (event_id, market)
+);
+CREATE INDEX IF NOT EXISTS ix_iddaa_odds_event ON iddaa_odds(event_id);
+
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT

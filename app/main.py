@@ -1,4 +1,5 @@
 """FastAPI uygulaması. Çalıştırma: ./run.sh  (veya .venv/bin/uvicorn app.main:app)"""
+import json
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone
@@ -34,13 +35,42 @@ def _check_league(league: str):
         raise HTTPException(404, "Bilinmeyen lig")
 
 
+def _attach_iddaa_odds(items: list[dict]) -> list[dict]:
+    """Tahmin yanıtlarına aynı ESPN maçıyla eşleşen güncel iddaa oranlarını ekler."""
+    if not items:
+        return items
+    match_ids = [str(item["id"]) for item in items]
+    placeholders = ",".join("?" for _ in match_ids)
+    with session() as conn:
+        rows = conn.execute(
+            f"""SELECT e.match_id, e.id event_id, e.updated_at, o.market, o.odd
+                FROM iddaa_events e JOIN iddaa_odds o ON o.event_id=e.id
+                WHERE e.match_id IN ({placeholders})""", match_ids).fetchall()
+    by_match: dict[str, dict] = {}
+    for row in rows:
+        entry = by_match.setdefault(row["match_id"], {
+            "event_id": row["event_id"], "updated_at": row["updated_at"], "odds": {}
+        })
+        entry["odds"][row["market"]] = row["odd"]
+    for item in items:
+        source = by_match.get(str(item["id"]))
+        item["iddaa_odds"] = source["odds"] if source else {}
+        item["iddaa_event_id"] = source["event_id"] if source else None
+        item["iddaa_updated_at"] = source["updated_at"] if source else None
+    return items
+
+
 @app.get("/api/leagues")
 def leagues():
     with session() as conn:
         rows = {r["league"]: dict(r) for r in conn.execute(
             "SELECT league, COUNT(*) total, SUM(completed) played FROM matches GROUP BY league")}
         last = get_meta(conn, "last_update")
+        iddaa_last = get_meta(conn, "iddaa_last_update")
+        iddaa_error = get_meta(conn, "iddaa_last_error")
+        iddaa_stats = json.loads(get_meta(conn, "iddaa_stats", "null"))
     return {"last_update": last, "model": MODEL,
+            "iddaa": {"last_update": iddaa_last, "error": iddaa_error, "stats": iddaa_stats},
             "leagues": [{"id": k, **v, "total": rows.get(k, {}).get("total", 0),
                          "played": rows.get(k, {}).get("played", 0)} for k, v in LEAGUES.items()]}
 
@@ -48,7 +78,7 @@ def leagues():
 @app.get("/api/upcoming")
 def upcoming(league: str, days: int = Query(14, ge=1, le=30)):
     _check_league(league)
-    return engine.get_model(league).upcoming_predictions(days)
+    return _attach_iddaa_odds(engine.get_model(league).upcoming_predictions(days))
 
 
 @app.get("/api/match/{match_id}")
@@ -58,9 +88,10 @@ def match(match_id: str):
         if m:
             model = engine.get_model(lg)
             p = model.predict(m["home"], m["away"], m["ts"])
-            return {"id": m["id"], "league": lg, "league_name": LEAGUES[lg]["name"], "kickoff": m["kickoff"],
-                    "home": m["home"], "away": m["away"],
-                    "home_logo": engine._logo(m["home_id"]), "away_logo": engine._logo(m["away_id"]), **p}
+            result = {"id": m["id"], "league": lg, "league_name": LEAGUES[lg]["name"], "kickoff": m["kickoff"],
+                      "home": m["home"], "away": m["away"],
+                      "home_logo": engine._logo(m["home_id"]), "away_logo": engine._logo(m["away_id"]), **p}
+            return _attach_iddaa_odds([result])[0]
     raise HTTPException(404, "Maç bulunamadı")
 
 
@@ -85,7 +116,7 @@ def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0):
                             "confidence_label": p["confidence_label"],
                             "score": p["pick"]["p"] * (0.5 + p["confidence"])})
     out.sort(key=lambda x: -x["score"])
-    return out
+    return _attach_iddaa_odds(out)
 
 
 @app.post("/api/update")

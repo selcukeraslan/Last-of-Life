@@ -46,7 +46,10 @@ select, input { background: var(--panel); color: var(--text); border: 1px solid 
 .odds3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; }
 .odd { background: var(--panel2); border-radius: 6px; padding: 4px; }
 .odd small { display: block; color: var(--muted); font-size: 11px; }
-.odd b { font-variant-numeric: tabular-nums; }
+.iddaa-odd { display: block; font-size: 16px; line-height: 1.25; font-variant-numeric: tabular-nums; }
+.claude-odd { display: block; color: var(--muted); font-size: 10px; font-weight: 400; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.pick .iddaa-odd { display: inline-block; margin-left: 4px; }
+.pick .claude-odd { margin-top: 2px; }
 .pick { text-align: right; }
 .badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
 .b-good { background: rgba(34,197,94,.15); color: var(--good); }
@@ -73,6 +76,8 @@ td.l, th.l { text-align: left; }
 .mk { background: var(--panel2); border-radius: 8px; padding: 8px; }
 .mk .k { font-weight: 700; }
 .mk .p { color: var(--muted); font-size: 12px; }
+.market-odds { margin-top: 5px; }
+.market-odds .iddaa-odd { font-size: 18px; }
 .mk input { width: 70px; margin-top: 4px; }
 .mk .ev { font-size: 12px; margin-top: 3px; }
 .kv { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px; }

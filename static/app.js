@@ -15,6 +15,9 @@ function fmtDateTime(iso) { return new Date(iso).toLocaleString("tr-TR", { day: 
 function confBadge(label) { return `<span class="badge ${label === "Yüksek" ? "b-good" : label === "Orta" ? "b-warn" : "b-bad"}">${label} güven</span>`; }
 function formDots(s) { return `<span class="formdots">${[...(s || "")].map((c) => `<span class="f-${c}">${c}</span>`).join("")}</span>`; }
 function img(src) { return src ? `<img src="${esc(src)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : ""; }
+function oddsValue(iddaa, claude) {
+  return `<b class="iddaa-odd">${iddaa ?? "-"}</b><span class="claude-odd">Claude oran: ${claude ?? "-"}</span>`;
+}
 
 async function loadLeagues() {
   const d = await api("/api/leagues");
@@ -37,7 +40,7 @@ async function renderMatches() {
     const day = fmtDay(m.kickoff);
     if (day !== lastDay) { html += `<div class="day-head">${day}</div>`; lastDay = day; }
     const k = m.markets;
-    html += `<div class="card match" data-id="${m.id}">
+    html += `<div class="card match" data-id="${m.id}" role="button" tabindex="0" aria-label="${esc(m.home)} - ${esc(m.away)} maç detayı">
       <div class="time">${fmtTime(m.kickoff)}</div>
       <div class="teams">
         <div>${img(m.home_logo)}<b>${esc(m.home)}</b><span class="xg">${m.lambda_home.toFixed(2)} xG</span></div>
@@ -46,11 +49,11 @@ async function renderMatches() {
       <div>
         <div class="probbar"><div class="h" style="width:${k["1"].p * 100}%"></div><div class="d" style="width:${k["X"].p * 100}%"></div><div class="a" style="width:${k["2"].p * 100}%"></div></div>
         <div class="odds3">
-          ${["1", "X", "2"].map((s) => `<div class="odd"><small>${s} · ${pct(k[s].p)}</small><b>${k[s].suggested ?? "-"}</b></div>`).join("")}
+          ${["1", "X", "2"].map((s) => `<div class="odd"><small>${s} · ${pct(k[s].p)}</small>${oddsValue(m.iddaa_odds[s], k[s].suggested)}</div>`).join("")}
         </div>
       </div>
       <div class="pick">
-        ${m.pick ? `<div><span class="badge b-info">${esc(m.pick.market)}</span> <b>${m.pick.suggested}</b></div><div class="muted" style="font-size:12px">olasılık ${pct(m.pick.p)}</div>` : ""}
+        ${m.pick ? `<div><span class="badge b-info">${esc(m.pick.market)}</span> ${oddsValue(m.iddaa_odds[m.pick.market], m.pick.suggested)}</div><div class="muted" style="font-size:12px">olasılık ${pct(m.pick.p)}</div>` : ""}
         <div style="margin-top:4px">${confBadge(m.confidence_label)}</div>
       </div>
     </div>`;
@@ -64,11 +67,11 @@ async function renderPicks() {
   const list = await api(`/api/picks?days=${$("#pickDays").value}&min_conf=${$("#pickConf").value}`);
   if (!list.length) { el.innerHTML = `<div class="card muted">Öneri yok.</div>`; return; }
   el.innerHTML = `<div class="card"><table>
-    <tr><th class="l">Maç</th><th>Lig</th><th>Tarih</th><th>Tahmin</th><th>Olasılık</th><th>Önerilen oran</th><th>Güven</th></tr>
+    <tr><th class="l">Maç</th><th>Lig</th><th>Tarih</th><th>Tahmin</th><th>Olasılık</th><th>Oranlar</th><th>Güven</th></tr>
     ${list.slice(0, 40).map((p) => `<tr class="clickable" data-id="${p.id}" style="cursor:pointer">
       <td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td>
       <td>${fmtDateTime(p.kickoff)}</td><td><span class="badge b-info">${esc(p.pick.market)}</span></td>
-      <td>${pct(p.pick.p)}</td><td><b>${p.pick.suggested}</b></td><td>${confBadge(p.confidence_label)}</td></tr>`).join("")}
+      <td>${pct(p.pick.p)}</td><td>${oddsValue(p.iddaa_odds[p.pick.market], p.pick.suggested)}</td><td>${confBadge(p.confidence_label)}</td></tr>`).join("")}
   </table><p class="muted">Kombine kuponda olasılıklar çarpılır: 3 maçlık %70'lik kupon ≈ %34 tutar.</p></div>`;
 }
 
@@ -139,10 +142,11 @@ async function openMatch(id) {
     </div>
     <div class="card">
       <h3>Pazarlar ve oranlar</h3>
-      <p class="muted">Bahis sitesindeki oranı yazın; model olasılığına göre değerli olup olmadığını gösterir.</p>
+      <p class="muted">İddaa oranı bulunan pazarlar otomatik doldurulur; değeri değiştirerek farklı bir oranı da hesaplayabilirsiniz.</p>
       <div class="mk-grid">${order.map((key) => `<div class="mk"><div class="k">${esc(key)}</div>
-        <div class="p">${pct(k[key].p)} · adil ${k[key].fair ?? "-"} · <b style="color:var(--text)">öneri ${k[key].suggested ?? "-"}</b></div>
-        <input type="number" step="0.01" min="1" placeholder="site oranı" data-p="${k[key].p}">
+        <div class="p">${pct(k[key].p)} · adil ${k[key].fair ?? "-"}</div>
+        <div class="market-odds">${oddsValue(m.iddaa_odds[key], k[key].suggested)}</div>
+        <input type="number" step="0.01" min="1" placeholder="bahis oranı" data-p="${k[key].p}" value="${m.iddaa_odds[key] ?? ""}">
         <div class="evout"></div></div>`).join("")}</div>
       <h4>En olası skorlar</h4>
       <div class="mk-grid">${m.scores.map((s) => `<div class="mk"><div class="k">${s.score}</div><div class="p">${pct(s.p)} · oran ${s.suggested}</div></div>`).join("")}</div>
@@ -175,9 +179,11 @@ async function openMatch(id) {
       <div class="card"><h3>${esc(m.home)} haberleri</h3>${newsList(f.news.home)}</div>
       <div class="card"><h3>${esc(m.away)} haberleri</h3>${newsList(f.news.away)}</div>
     </div>`;
-  $("#modalBody").querySelectorAll(".mk input").forEach((inp) => inp.addEventListener("input", () => {
-    inp.nextElementSibling.innerHTML = evLine(parseFloat(inp.dataset.p), parseFloat(inp.value));
-  }));
+  $("#modalBody").querySelectorAll(".mk input").forEach((inp) => {
+    const updateEv = () => { inp.nextElementSibling.innerHTML = evLine(parseFloat(inp.dataset.p), parseFloat(inp.value)); };
+    inp.addEventListener("input", updateEv);
+    updateEv();
+  });
   $("#modal").classList.remove("hidden");
 }
 function closeModal() { $("#modal").classList.add("hidden"); }
@@ -232,7 +238,10 @@ document.addEventListener("click", (e) => {
   if (row && !e.target.closest(".modal")) openMatch(row.dataset.id);
   if (e.target.id === "modal") closeModal();
 });
-document.addEventListener("keydown", (e) => e.key === "Escape" && closeModal());
+document.addEventListener("keydown", (e) => {
+  if (e.key === "Escape") closeModal();
+  if ((e.key === "Enter" || e.key === " ") && e.target.matches(".match[data-id]")) openMatch(e.target.dataset.id);
+});
 $("#btnUpdate").addEventListener("click", async () => { await api("/api/update", { method: "POST" }); $("#updateBar").classList.remove("hidden"); pollUpdate(); });
 $("#btnBacktest").addEventListener("click", async () => { await api("/api/backtest", { method: "POST" }); renderModel(); });
 $("#pickDays").addEventListener("change", renderPicks);

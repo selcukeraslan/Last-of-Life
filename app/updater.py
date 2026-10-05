@@ -6,7 +6,7 @@ from datetime import datetime, timezone
 
 from .config import LEAGUES
 from .db import init_db, session, set_meta
-from .scrapers import espn, news
+from .scrapers import espn, iddaa, news
 
 _state = {"running": False, "message": "", "started_at": None, "finished_at": None, "error": None}
 _lock = threading.Lock()
@@ -37,6 +37,14 @@ def run_update(leagues=None, with_news=True):
             for lg, n in pool.map(one, leagues or LEAGUES):
                 _progress(f"{lg}: {n} maç işlendi")
         with session() as conn:
+            try:
+                iddaa.sync_odds(conn, progress=_progress)
+            except Exception as exc:
+                # Eski oranı güncelmiş gibi göstermemek için erişim hatasında temizle.
+                conn.execute("DELETE FROM iddaa_odds")
+                conn.execute("DELETE FROM iddaa_events")
+                set_meta(conn, "iddaa_last_error", str(exc))
+                _progress(f"iddaa.com oranları alınamadı ({exc}); model oranları kullanılacak")
             if with_news:
                 n = news.sync_news(conn, progress=_progress)
                 _progress(f"{n} haber işlendi")

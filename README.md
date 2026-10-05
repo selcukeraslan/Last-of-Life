@@ -28,6 +28,7 @@ Komut satırından güncelleme:
 | Veri | Kaynak |
 |---|---|
 | Maç sonuçları ve fikstür | ESPN fikstür sayfaları (sayfaya gömülü JSON okunur) |
+| Güncel bahis oranları | iddaa.com maç öncesi bülteni (sitenin herkese açık JSON/XHR uç noktası) |
 | Puan durumu, form, ev/deplasman performansı, H2H, dinlenme süresi | Yukarıdaki sonuçlardan hesaplanır |
 | Haberler, sakatlık/ceza sinyali | Google Haberler RSS (takım başına, son 7 gün) |
 
@@ -42,8 +43,9 @@ Ligler: Süper Lig, Premier League, La Liga, Serie A, Bundesliga, Ligue 1 (`app/
 5. **Dinlenme**: 4 günden az dinlenen takıma küçük ceza.
 6. **Dixon-Coles** düzeltmeli skor matrisi → 1X2, çifte şans, Alt/Üst 1.5/2.5/3.5, KG Var/Yok, skor.
 
-Adil oran = 1/olasılık. Önerilen oran = adil oran + %5 marj. Maç detayında bahis sitesindeki oranı
-girerseniz beklenen değer (EV) ve ¼ Kelly hesaplanır.
+Adil oran = 1/olasılık. Arayüzde iddaa.com oranı ana değer, modelin önerilen oranı ise **Claude oran**
+etiketiyle gösterilir. Maç detayında iddaa oranı otomatik doldurulur ve model olasılığına göre beklenen
+değer (EV) ile ¼ Kelly hesaplanır; isterseniz alanı değiştirerek başka bir oranı deneyebilirsiniz.
 
 **Model** sekmesindeki geriye dönük test her maçı sadece öncesindeki verilerle tahmin edip doğruluğu ölçer.
 Parametreler `app/config.py` içindeki `MODEL` sözlüğündedir.
@@ -53,6 +55,7 @@ Parametreler `app/config.py` içindeki `MODEL` sözlüğündedir.
 ```
 app/config.py          ayarlar, ligler, model parametreleri
 app/scrapers/espn.py   sonuç & fikstür toplayıcı
+app/scrapers/iddaa.py  iddaa.com bülten oranları + ESPN maç eşleştirmesi
 app/scrapers/news.py   Google Haberler RSS toplayıcı
 app/sentiment.py       TR/EN başlık duygu + sakatlık analizi
 app/model/ratings.py   Elo, Poisson güçleri, form, puan durumu
@@ -66,4 +69,6 @@ data/iddia.db          SQLite veritabanı (otomatik oluşur)
 ## Notlar
 
 - Kaynak sitelerin HTML yapısı değişirse toplayıcı hata verebilir; hata arayüzde gösterilir.
+- iddaa.com yalnızca o anda maç öncesi bülteninde yayımlanan oranları döndürür. Uzak tarihli veya henüz
+  oran açılmamış ESPN fikstürlerinde iddaa oranı `-` görünür; Claude oranı gösterilmeye devam eder.
 - Tahminler istatistiksel tahmindir, kesinlik içermez. Sorumlu oynayın.
