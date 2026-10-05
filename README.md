@@ -47,6 +47,15 @@ Adil oran = 1/olasılık. Arayüzde iddaa.com oranı ana değer, modelin öneril
 etiketiyle gösterilir. Maç detayında iddaa oranı otomatik doldurulur ve model olasılığına göre beklenen
 değer (EV) ile ¼ Kelly hesaplanır; isterseniz alanı değiştirerek başka bir oranı deneyebilirsiniz.
 
+**Günlük Kupon** sekmesi seçilen günün (Türkiye saati, tüm ligler, başlamamış maçlar) iki kuponunu kurar:
+- **Banko**: 2-3 maç, maç başı ≥%75, toplam tutma ≥%50, oran ≥1.15; her maçtan tek seçim.
+- **Sürpriz**: 3-5 farklı maç, toplam oran ≥15; adaylar EV'ye (olasılık × oran − 1) göre sıralanır, şartı
+  sağlayan en olası kombinasyon seçilir.
+
+Kuponda oran olarak eşleşen **iddaa** oranı kullanılır; o pazarda iddaa oranı yoksa **Claude oran**'a düşülür.
+Her satırda ve kupon başlığında hangisinin kullanıldığı yazar. Şartı sağlayan seçim yoksa kupon boş döner.
+API: `/api/coupons?day=YYYY-MM-DD`. Testler: `.venv/bin/python -m unittest discover -s tests -t .`
+
 **Model** sekmesindeki geriye dönük test her maçı sadece öncesindeki verilerle tahmin edip doğruluğu ölçer.
 Parametreler `app/config.py` içindeki `MODEL` sözlüğündedir.
 

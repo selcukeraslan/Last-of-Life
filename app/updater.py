@@ -44,6 +44,7 @@ def run_update(leagues=None, with_news=True):
                 conn.execute("DELETE FROM iddaa_odds")
                 conn.execute("DELETE FROM iddaa_events")
                 set_meta(conn, "iddaa_last_error", str(exc))
+                set_meta(conn, "iddaa_stats", "null")
                 _progress(f"iddaa.com oranları alınamadı ({exc}); model oranları kullanılacak")
             if with_news:
                 n = news.sync_news(conn, progress=_progress)

@@ -1,80 +1,135 @@
-"""Günlük, ligler arası kupon seçimi."""
-import json
-from datetime import date
+"""Günlük, ligler arası kupon seçimi (Banko + Sürpriz).
+
+Oran önceliği: eşleşen iddaa.com oranı varsa o kullanılır, yoksa Claude oranı (modelin
+önerilen oranı). Her seçimde hangi oranın kullanıldığı `odds_source` alanında döner.
+Gün sınırı Türkiye saatidir (arayüzdeki saatler de yerel gösterilir).
+"""
+import math
+from datetime import date, datetime, timezone
+from itertools import combinations
+from zoneinfo import ZoneInfo
+
 from ..config import LEAGUES
 from ..db import session
+from ..scrapers import iddaa
 from . import engine
-BANKO_MIN_P=0.75; BANKO_MIN_ODDS=1.15; BANKO_MIN_TOTAL_P=0.50
-SURPRISE_MIN_P=0.20; SURPRISE_MAX_P=0.62; SURPRISE_MIN_ODDS=1.55
 
-def _odds_from_db(conn, match_id, market):
-    try:
-        cols={r[1] for r in conn.execute("PRAGMA table_info(matches)")}
-        for col in ("iddaa_odds","odds_json","odds"):
-            if col not in cols: continue
-            row=conn.execute(f"SELECT {col} FROM matches WHERE id=?",(match_id,)).fetchone()
-            if row and row[0]:
-                data=json.loads(row[0]) if isinstance(row[0],str) else row[0]
-                value=data.get(market) if isinstance(data,dict) else None
-                if value is not None and float(value)>=1.01: return round(float(value),2),"iddaa"
-    except Exception: pass
-    try:
-        tables={r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
-        if "odds" in tables:
-            cols={r[1] for r in conn.execute("PRAGMA table_info(odds)")}
-            if {"match_id","market","odds"}<=cols:
-                row=conn.execute("SELECT odds FROM odds WHERE match_id=? AND market=?",(match_id,market)).fetchone()
-                if row and row[0] and float(row[0])>=1.01: return round(float(row[0]),2),"iddaa"
-    except Exception: pass
-    return None,"model"
+TZ = ZoneInfo("Europe/Istanbul")
+LOOKAHEAD_DAYS = 60
 
-def get_odds(conn, match_id, market, suggested):
-    value,source=_odds_from_db(conn,match_id,market)
-    return (value if value is not None else suggested),source
+BANKO_MIN_P = 0.75
+BANKO_MIN_ODDS = 1.15
+BANKO_MIN_TOTAL_P = 0.50
+BANKO_PICKS = (2, 3)
 
-def _markets(prediction,conn):
-    for market,item in prediction.get("markets",{}).items():
-        if item.get("suggested") and item["suggested"]>=1.01:
-            odds,source=get_odds(conn,prediction["id"],market,item["suggested"])
-            yield {"market":market,"p":item["p"],"odds":odds,"odds_source":source,"fair":item.get("fair")}
+SURPRISE_MIN_P = 0.20
+SURPRISE_MAX_P = 0.62
+SURPRISE_MIN_ODDS = 1.55
+SURPRISE_MIN_TOTAL_ODDS = 15.0
+SURPRISE_PICKS = (3, 5)
+SURPRISE_POOL = 14  # kombinasyon aramasına giren en değerli aday sayısı
+SURPRISE_MARKETS = {"X", "2", "Ü2.5", "Ü3.5", "KG Var", "A2.5"}
 
-def _match_view(p,c):
-    return {"id":p["id"],"league":p["league"],"league_name":LEAGUES[p["league"]]["name"],"kickoff":p["kickoff"],"home":p["home"],"away":p["away"],**c,"model_probability":c["p"]}
 
-def _coupon(kind,picks,note):
-    import math
-    total_odds = math.prod(p["odds"] for p in picks) if picks else 0
-    total_probability = math.prod(p["p"] for p in picks) if picks else 0
-    return {"type":kind,"picks":picks,"total_odds":round(total_odds,2),"total_probability":round(total_probability,4),"stake_note":note}
+def _choices(prediction: dict, iddaa_odds: dict) -> list[dict]:
+    """Bir maçın seçilebilir pazarları; oran = iddaa varsa iddaa, yoksa Claude oranı."""
+    out = []
+    for market, item in prediction["markets"].items():
+        claude = item.get("suggested")
+        if not claude or claude < 1.01:
+            continue
+        theirs = iddaa_odds.get(market)
+        odds, source = (round(theirs, 2), "iddaa") if theirs and theirs >= 1.01 else (claude, "claude")
+        out.append({"market": market, "p": item["p"], "odds": odds, "odds_source": source,
+                    "iddaa_odds": theirs if source == "iddaa" else None, "claude_odds": claude,
+                    "fair": item.get("fair")})
+    return out
 
-def build_coupons(target:date):
-    all_predictions=[]
+
+def _match_view(prediction: dict, choice: dict) -> dict:
+    return {"id": prediction["id"], "league": prediction["league"],
+            "league_name": LEAGUES[prediction["league"]]["name"], "kickoff": prediction["kickoff"],
+            "home": prediction["home"], "away": prediction["away"], **choice,
+            "model_probability": choice["p"]}
+
+
+def _coupon(kind: str, picks: list[dict], note: str) -> dict:
+    sources = {p["odds_source"] for p in picks}
+    source = sources.pop() if len(sources) == 1 else ("karışık" if sources else None)
+    return {"type": kind, "picks": picks, "stake_note": note, "odds_source": source,
+            "iddaa_picks": sum(p["odds_source"] == "iddaa" for p in picks),
+            "total_odds": round(math.prod(p["odds"] for p in picks), 2) if picks else 0,
+            "total_probability": round(math.prod(p["p"] for p in picks), 4) if picks else 0}
+
+
+def select_banko(entries: list[tuple[dict, list[dict]]]) -> list[dict]:
+    """Maç başı en olası uygun pazar; en olası 2-3 maç, toplam tutma >= %50. Her maçtan tek seçim."""
+    best = []
+    for prediction, choices in entries:
+        ok = [c for c in choices if c["p"] >= BANKO_MIN_P and c["odds"] >= BANKO_MIN_ODDS]
+        if ok:
+            best.append((prediction, max(ok, key=lambda c: (c["p"], c["odds"]))))
+    best.sort(key=lambda x: (-x[1]["p"], -x[1]["odds"]))
+    picks = [_match_view(p, c) for p, c in best[:BANKO_PICKS[1]]]
+    while len(picks) > BANKO_PICKS[0] and math.prod(x["p"] for x in picks) < BANKO_MIN_TOTAL_P:
+        picks.pop()
+    if len(picks) < BANKO_PICKS[0] or math.prod(x["p"] for x in picks) < BANKO_MIN_TOTAL_P:
+        return []
+    return picks
+
+
+def select_surprise(entries: list[tuple[dict, list[dict]]]) -> list[dict]:
+    """3-5 farklı maç, toplam oran >= 15. Maç başı seçim EV'ye (p x oran - 1) göre; kuponda oran
+    iddaa oranıysa gerçek, değilse Claude oranına göre EV'dir. En değerli adaylar arasından toplam
+    oran >= 15 şartını sağlayan, tutma olasılığı en yüksek kombinasyon seçilir (eşitlikte birleşik EV)."""
+    pool = []
+    for prediction, choices in entries:
+        ok = [dict(c, value=round(c["p"] * c["odds"] - 1, 4)) for c in choices
+              if c["market"] in SURPRISE_MARKETS and SURPRISE_MIN_P <= c["p"] <= SURPRISE_MAX_P
+              and c["odds"] >= SURPRISE_MIN_ODDS]
+        if ok:
+            pool.append((prediction, max(ok, key=lambda c: (c["value"], c["p"] * c["odds"] ** 0.35))))
+    pool.sort(key=lambda x: (x[1]["value"], x[1]["p"] * x[1]["odds"] ** 0.35), reverse=True)
+    pool = pool[:SURPRISE_POOL]
+
+    best, best_key = None, None
+    for size in range(SURPRISE_PICKS[0], SURPRISE_PICKS[1] + 1):
+        for combo in combinations(pool, size):
+            if math.prod(c["odds"] for _, c in combo) < SURPRISE_MIN_TOTAL_ODDS:
+                continue
+            key = (round(math.prod(c["p"] for _, c in combo), 4),
+                   math.prod(c["p"] * c["odds"] for _, c in combo))
+            if best_key is None or key > best_key:
+                best, best_key = combo, key
+    if best is None:
+        return []
+    return [_match_view(p, c) for p, c in sorted(best, key=lambda x: x[0]["kickoff"])]
+
+
+def _day_entries(target: date) -> list[tuple[dict, list[dict]]]:
+    now = datetime.now(timezone.utc)
+    predictions = []
+    for league in LEAGUES:
+        for p in engine.get_model(league).upcoming_predictions(LOOKAHEAD_DAYS):
+            kickoff = datetime.fromisoformat(p["kickoff"].replace("Z", "+00:00"))
+            if kickoff > now and kickoff.astimezone(TZ).date() == target:
+                predictions.append(p)
     with session() as conn:
-        for league in LEAGUES:
-            for p in engine.get_model(league).upcoming_predictions(30):
-                if p["kickoff"][:10]==target.isoformat(): all_predictions.append((p,list(_markets(p,conn))))
-        candidates=[]
-        for p,choices in all_predictions:
-            choices=[x for x in choices if x["p"]>=BANKO_MIN_P and x["odds"]>=BANKO_MIN_ODDS]
-            if choices: candidates.append((p,max(choices,key=lambda x:(x["p"],x["odds"]))))
-        candidates.sort(key=lambda x:(-x[1]["p"],-x[1]["odds"]))
-        banko=[_match_view(p,c) for p,c in candidates[:3]]
-        while len(banko)>1 and _coupon("banko",banko,"")["total_probability"]<BANKO_MIN_TOTAL_P: banko.pop()
-        banko_coupon=_coupon("banko",banko,"Sadece kaybetmeyi göze alabileceğiniz tutarla oynayın.")
-        surprise=[]; allowed={"X","2","Ü2.5","Ü3.5","KG Var","A2.5"}
-        for p,choices in all_predictions:
-            choices=[x for x in choices if x["market"] in allowed and SURPRISE_MIN_P<=x["p"]<=SURPRISE_MAX_P and x["odds"]>=SURPRISE_MIN_ODDS]
-            if choices:
-                c=dict(max(choices,key=lambda x:(x["p"]*x["odds"]-1,x["p"]*(x["odds"]**0.35))))
-                c["value"]=round(c["p"]*c["odds"]-1,4); c["value_signal"]="EV" if c["odds_source"]=="iddaa" else "model-oran dengesi"; surprise.append((p,c))
-        surprise.sort(key=lambda x:(x[1]["value"],x[1]["p"]*(x[1]["odds"]**0.35)),reverse=True)
-        selected=[]; seen=set()
-        for p,c in surprise:
-            if p["id"] in seen: continue
-            selected.append(_match_view(p,c)); seen.add(p["id"])
-            if len(selected) >= 3 and (len(selected)==5 or _coupon("surprise",selected,"")["total_odds"]>=15): break
-        # Sürpriz kupon en az üç maç şartını karşılamıyorsa kupon üretme.
-        if len(selected) < 3:
-            selected = []
-        surprise_coupon=_coupon("surprise",selected,"Sürpriz kupon: küçük miktar kullanın; garanti değildir.")
-    return {"date":target.isoformat(),"banko":banko_coupon,"surprise":surprise_coupon,"rules":{"banko_min_probability":BANKO_MIN_P,"banko_min_total_probability":BANKO_MIN_TOTAL_P,"surprise_probability_range":[SURPRISE_MIN_P,SURPRISE_MAX_P],"surprise_min_total_odds":15}}
+        odds = iddaa.odds_for_matches(conn, [p["id"] for p in predictions])
+    return [(p, _choices(p, odds.get(str(p["id"]), {}).get("odds", {}))) for p in predictions]
+
+
+def build_coupons(target: date) -> dict:
+    entries = _day_entries(target)
+    return {
+        "date": target.isoformat(),
+        "matches": len(entries),
+        "banko": _coupon("banko", select_banko(entries),
+                         "Sadece kaybetmeyi göze alabileceğiniz tutarla oynayın."),
+        "surprise": _coupon("surprise", select_surprise(entries),
+                            "Sürpriz kupon: küçük miktar kullanın; garanti değildir."),
+        "rules": {"banko_min_probability": BANKO_MIN_P, "banko_min_total_probability": BANKO_MIN_TOTAL_P,
+                  "banko_min_odds": BANKO_MIN_ODDS,
+                  "surprise_probability_range": [SURPRISE_MIN_P, SURPRISE_MAX_P],
+                  "surprise_min_total_odds": SURPRISE_MIN_TOTAL_ODDS},
+    }

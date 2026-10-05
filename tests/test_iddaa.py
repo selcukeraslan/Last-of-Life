@@ -61,3 +61,46 @@ class IddaaScraperTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class SyncOddsTests(unittest.TestCase):
+    def setUp(self):
+        import tempfile
+        from pathlib import Path
+        from unittest.mock import patch
+        from app import db
+        self.tmp = tempfile.TemporaryDirectory()
+        patcher = patch.object(db, "DB_PATH", Path(self.tmp.name) / "t.db")
+        patcher.start()
+        self.addCleanup(patcher.stop)
+        self.addCleanup(self.tmp.cleanup)
+        db.init_db()
+        with db.session() as conn:
+            conn.execute("INSERT INTO matches(id, league, kickoff, home, away, completed) VALUES "
+                         "('espn-1','eng.1','2026-10-17T14:00Z','Manchester City','Wolverhampton Wanderers',0)")
+
+    @staticmethod
+    def raw(i, home, away, odd, ts=1792245600):
+        return {"i": i, "ci": 43, "d": ts, "hn": home, "an": away,
+                "m": [{"t": 1, "st": 1, "s": 1, "o": [{"no": 1, "odd": odd}, {"no": 2, "odd": 3.5}, {"no": 3, "odd": 5.0}]}]}
+
+    def test_one_event_per_fixture_and_lookup(self):
+        from unittest.mock import patch
+        from app import db
+        from app.scrapers import iddaa
+        payload = {"data": {"events": [self.raw(1, "Man City", "Wolves", 1.45),
+                                       self.raw(2, "Man City", "Wolves", 9.99, ts=1792245600 + 600)]}}
+        with patch.object(iddaa, "fetch_json", return_value=payload), db.session() as conn:
+            stats = iddaa.sync_odds(conn)
+            odds = iddaa.odds_for_matches(conn, ["espn-1"])
+        self.assertEqual(stats["matched"], 1)
+        self.assertEqual(odds["espn-1"]["odds"]["1"], 1.45)  # kopya etkinliğin oranı karışmaz
+
+    def test_unreachable_iddaa_raises_and_keeps_tables_readable(self):
+        from unittest.mock import patch
+        from app import db
+        from app.scrapers import iddaa
+        with patch.object(iddaa, "fetch_json", side_effect=RuntimeError("down")), db.session() as conn:
+            with self.assertRaises(RuntimeError):
+                iddaa.sync_odds(conn)
+            self.assertEqual(iddaa.odds_for_matches(conn, ["espn-1"]), {})

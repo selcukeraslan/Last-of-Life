@@ -200,9 +200,19 @@ def sync_odds(conn, progress=None) -> dict:
     # Yalnız başarılı ve parse edilebilir bir yanıttan sonra eski bülteni değiştir.
     conn.execute("DELETE FROM iddaa_odds")
     conn.execute("DELETE FROM iddaa_events")
-    matched = odds_count = 0
+    # Bir ESPN maçına en fazla bir iddaa etkinliği bağlanır; aksi halde iki etkinliğin
+    # (ör. aynı maçın özel/kopya kaydı) oranları tek maçta karışırdı.
+    best_for_fixture: dict[str, tuple[float, str]] = {}
+    pairs = []
     for event in events:
         fixture, score = match_event(event, fixtures)
+        pairs.append((event, fixture, score))
+        if fixture and score > best_for_fixture.get(fixture["id"], (0.0, ""))[0]:
+            best_for_fixture[fixture["id"]] = (score, event["id"])
+    matched = odds_count = 0
+    for event, fixture, score in pairs:
+        if fixture and best_for_fixture[fixture["id"]][1] != event["id"]:
+            fixture, score = None, 0.0
         match_id = fixture["id"] if fixture else None
         matched += int(fixture is not None)
         conn.execute(
@@ -228,3 +238,21 @@ def sync_odds(conn, progress=None) -> dict:
         progress(f"iddaa.com: bültende {len(raw_events)} futbol maçı; desteklenen liglerde "
                  f"{len(events)} maç, {matched} eşleşme ({pct}), {odds_count} oran")
     return stats
+
+
+def odds_for_matches(conn, match_ids) -> dict[str, dict]:
+    """ESPN maç kimliği -> {"event_id", "updated_at", "odds": {pazar: oran}} (yalnız eşleşenler)."""
+    match_ids = [str(m) for m in match_ids]
+    if not match_ids:
+        return {}
+    marks = ",".join("?" for _ in match_ids)
+    rows = conn.execute(
+        f"""SELECT e.match_id, e.id event_id, e.updated_at, o.market, o.odd
+            FROM iddaa_events e JOIN iddaa_odds o ON o.event_id=e.id
+            WHERE e.match_id IN ({marks})""", match_ids).fetchall()
+    out: dict[str, dict] = {}
+    for row in rows:
+        entry = out.setdefault(row["match_id"], {
+            "event_id": row["event_id"], "updated_at": row["updated_at"], "odds": {}})
+        entry["odds"][row["market"]] = row["odd"]
+    return out

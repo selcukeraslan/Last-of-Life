@@ -12,7 +12,8 @@ from . import updater
 from .config import LEAGUES, MODEL, STATIC_DIR
 from .db import get_meta, init_db, session
 from .model import engine
-from .model.coupons import build_coupons
+from .scrapers import iddaa
+from .model.coupons import TZ, build_coupons
 from .model.ratings import parse_ts
 
 AUTO_UPDATE_HOURS = 6
@@ -40,19 +41,8 @@ def _attach_iddaa_odds(items: list[dict]) -> list[dict]:
     """Tahmin yanıtlarına aynı ESPN maçıyla eşleşen güncel iddaa oranlarını ekler."""
     if not items:
         return items
-    match_ids = [str(item["id"]) for item in items]
-    placeholders = ",".join("?" for _ in match_ids)
     with session() as conn:
-        rows = conn.execute(
-            f"""SELECT e.match_id, e.id event_id, e.updated_at, o.market, o.odd
-                FROM iddaa_events e JOIN iddaa_odds o ON o.event_id=e.id
-                WHERE e.match_id IN ({placeholders})""", match_ids).fetchall()
-    by_match: dict[str, dict] = {}
-    for row in rows:
-        entry = by_match.setdefault(row["match_id"], {
-            "event_id": row["event_id"], "updated_at": row["updated_at"], "odds": {}
-        })
-        entry["odds"][row["market"]] = row["odd"]
+        by_match = iddaa.odds_for_matches(conn, [item["id"] for item in items])
     for item in items:
         source = by_match.get(str(item["id"]))
         item["iddaa_odds"] = source["odds"] if source else {}
@@ -121,9 +111,9 @@ def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0):
 
 
 @app.get("/api/coupons")
-def coupons(day: str | None = Query(None, description="YYYY-MM-DD; varsayılan yerel bugün")):
+def coupons(day: str | None = Query(None, description="YYYY-MM-DD (Türkiye saati); varsayılan bugün")):
     try:
-        target = date.fromisoformat(day) if day else datetime.now().astimezone().date()
+        target = date.fromisoformat(day) if day else datetime.now(TZ).date()
     except ValueError as exc:
         raise HTTPException(400, "Gün YYYY-AA-GG biçiminde olmalı") from exc
     return build_coupons(target)

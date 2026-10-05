@@ -7,7 +7,7 @@ const api = async (url, opts) => {
   return r.json();
 };
 
-const state = { league: localStorage.getItem("league") || "tur.1", tab: "matches", leagues: [], model: {}, couponDate: new Date().toISOString().slice(0, 10) };
+const state = { league: localStorage.getItem("league") || "tur.1", tab: "matches", leagues: [], model: {}, couponDate: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), couponReq: 0 };
 
 function fmtTime(iso) { return new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }); }
 function fmtDay(iso) { return new Date(iso).toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long" }); }
@@ -75,15 +75,29 @@ async function renderPicks() {
   </table><p class="muted">Kombine kuponda olasılıklar çarpılır: 3 maçlık %70'lik kupon ≈ %34 tutar.</p></div>`;
 }
 
+function couponOdds(p) {
+  const claude = `Claude oran: ${p.claude_odds}`;
+  return p.odds_source === "iddaa"
+    ? `<b class="iddaa-odd">${p.odds}</b><span class="src src-iddaa">iddaa</span><span class="claude-odd">${claude}</span>`
+    : `<b class="iddaa-odd">${p.odds}</b><span class="src src-claude">Claude oran</span><span class="claude-odd">iddaa oranı yok</span>`;
+}
+function couponSource(c) {
+  if (!c.picks.length) return "";
+  if (c.odds_source === "iddaa") return `<span class="badge b-info">oranlar: iddaa</span>`;
+  if (c.odds_source === "claude") return `<span class="badge b-warn">oranlar: Claude oran</span>`;
+  return `<span class="badge b-info">oranlar: ${c.iddaa_picks}/${c.picks.length} iddaa, kalanı Claude oran</span>`;
+}
 function couponCard(c, title, cls) {
-  const rows = c.picks.length ? c.picks.map((p) => `<tr><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td><td>${fmtDateTime(p.kickoff)}</td><td><span class="badge ${cls}">${esc(p.market)}</span></td><td>${p.odds}</td><td>${pct(p.model_probability)}</td></tr>`).join("") : `<tr><td colspan="6" class="muted">Bu gün uygun seçim bulunamadı.</td></tr>`;
-  return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span class="badge ${cls}">${c.picks.length} maç</span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Model</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
+  const rows = c.picks.length ? c.picks.map((p) => `<tr><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td><td>${fmtDateTime(p.kickoff)}</td><td><span class="badge ${cls}">${esc(p.market)}</span></td><td>${couponOdds(p)}</td><td>${pct(p.model_probability)}</td></tr>`).join("") : `<tr><td colspan="6" class="muted">Bu gün uygun seçim bulunamadı.</td></tr>`;
+  return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span>${couponSource(c)} <span class="badge ${cls}">${c.picks.length} maç</span></span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Model</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
 }
 
 async function renderCoupons() {
-  const el = $("#coupons"); el.innerHTML = `<p class="muted">Kuponlar hesaplanıyor…</p>`;
+  const el = $("#coupons"), req = ++state.couponReq;
+  el.innerHTML = `<p class="muted">Kuponlar hesaplanıyor…</p>`;
   const d = await api(`/api/coupons?day=${state.couponDate}`);
-  el.innerHTML = `<p class="muted">${fmtDay(d.date + "T12:00:00Z")} · tüm ligler</p>` + couponCard(d.banko, "Banko Kupon", "b-good") + couponCard(d.surprise, "Sürpriz Kupon", "b-warn");
+  if (req !== state.couponReq) return; // daha yeni bir gün seçildi
+  el.innerHTML = `<p class="muted">${fmtDay(d.date + "T12:00:00Z")} · tüm ligler · ${d.matches} maç</p>` + couponCard(d.banko, "Banko Kupon", "b-good") + couponCard(d.surprise, "Sürpriz Kupon", "b-warn");
 }
 
 async function renderTable() {
@@ -259,8 +273,9 @@ $("#btnBacktest").addEventListener("click", async () => { await api("/api/backte
 $("#pickDays").addEventListener("change", renderPicks);
 $("#pickConf").addEventListener("change", renderPicks);
 $("#couponDate").value = state.couponDate;
-$("#couponDate").addEventListener("change", (e) => { state.couponDate = e.target.value; renderCoupons(); });
-function shiftCouponDay(n) { const d = new Date(state.couponDate + "T12:00:00"); d.setDate(d.getDate() + n); state.couponDate = d.toISOString().slice(0, 10); $("#couponDate").value = state.couponDate; renderCoupons(); }
+function setCouponDay(day) { if (!day) return; state.couponDate = day; $("#couponDate").value = day; renderCoupons().catch((e) => { $("#coupons").innerHTML = `<div class="card" style="color:var(--bad)">Hata: ${esc(e.message)}</div>`; }); }
+$("#couponDate").addEventListener("change", (e) => setCouponDay(e.target.value));
+function shiftCouponDay(n) { const d = new Date(state.couponDate + "T12:00:00Z"); d.setUTCDate(d.getUTCDate() + n); setCouponDay(d.toISOString().slice(0, 10)); }
 $("#couponPrev").addEventListener("click", () => shiftCouponDay(-1));
 $("#couponNext").addEventListener("click", () => shiftCouponDay(1));
 
