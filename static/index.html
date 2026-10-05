@@ -12,6 +12,7 @@
     <nav class="tabs">
       <button data-tab="matches" class="active">Maçlar</button>
       <button data-tab="picks">Öneriler</button>
+      <button data-tab="coupons">Günlük Kupon</button>
       <button data-tab="table">Puan Durumu</button>
       <button data-tab="model">Model</button>
     </nav>
@@ -35,6 +36,11 @@
         <label>Min. güven: <select id="pickConf"><option value="0">Hepsi</option><option value="0.45">Orta+</option><option value="0.7">Yüksek</option></select></label>
       </div>
       <div id="picks"></div>
+    </section>
+
+    <section id="tab-coupons" class="tab hidden">
+      <div class="toolbar coupon-toolbar"><button id="couponPrev" class="btn">‹ Önceki gün</button><label>Gün: <input id="couponDate" type="date"></label><button id="couponNext" class="btn">Sonraki gün ›</button></div>
+      <div id="coupons"></div>
     </section>
 
     <section id="tab-table" class="tab hidden">
