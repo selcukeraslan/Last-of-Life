@@ -58,7 +58,8 @@ select, input { background: var(--panel); color: var(--text); border: 1px solid 
 .b-bad { background: rgba(239,68,68,.15); color: var(--bad); }
 .b-info { background: rgba(59,130,246,.15); color: var(--accent2); }
 
-table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+table { display: block; width: 100%; overflow-x: auto; border-collapse: collapse; font-variant-numeric: tabular-nums; -webkit-overflow-scrolling: touch; }
+table tr { width: 100%; }
 th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: center; }
 th { color: var(--muted); font-weight: 600; font-size: 12px; }
 td.l, th.l { text-align: left; }
@@ -93,8 +94,45 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
 .coupon-total { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 
 @media (max-width: 760px) {
-  .match { grid-template-columns: 1fr; }
+  .topbar { position: sticky; gap: 8px; padding: 8px 12px; }
+  .brand { font-size: 15px; white-space: nowrap; }
+  .brand .muted { display: none; }
+  .tabs { order: 3; width: 100%; display: flex; overflow-x: auto; gap: 4px; scrollbar-width: none; }
+  .tabs::-webkit-scrollbar { display: none; }
+  .tabs button { flex: 0 0 auto; padding: 8px 10px; font-size: 13px; }
+  .update { margin-left: auto; gap: 6px; }
+  #lastUpdate { display: none; }
+  .btn { padding: 8px 10px; font-size: 13px; }
+  main { padding: 12px; }
+  .chips { flex-wrap: nowrap; overflow-x: auto; padding-bottom: 4px; scrollbar-width: thin; }
+  .chip { flex: 0 0 auto; }
+  .toolbar, .coupon-toolbar { flex-wrap: wrap; gap: 8px; }
+  .match { grid-template-columns: 48px minmax(0, 1fr); gap: 8px 10px; padding: 12px; }
+  .match > div:nth-child(3), .match > .pick { grid-column: 2; }
+  .teams div { min-width: 0; }
+  .teams b { min-width: 0; overflow-wrap: anywhere; }
+  .xg { font-size: 11px; }
+  .odds3 { gap: 4px; }
+  .odd { padding: 4px 2px; }
+  .odd small { font-size: 10px; }
+  .iddaa-odd { font-size: 14px; }
+  .claude-odd { white-space: normal; }
   .pick { text-align: left; }
   .grid2 { grid-template-columns: 1fr; }
   .mhead .team { width: auto; }
+  .mhead { gap: 10px; }
+  .mhead .team h3 { font-size: 14px; overflow-wrap: anywhere; }
+  .mhead .vs { font-size: 20px; white-space: nowrap; }
+  .modal { padding: 8px 0 0; }
+  .modal-body { min-height: 100%; border-radius: 14px 14px 0 0; padding: 16px 12px; }
+  .card { padding: 12px; }
+  .row-between { align-items: flex-start; flex-wrap: wrap; }
+  .kv { grid-template-columns: minmax(0, 1fr) auto auto; gap: 4px 8px; font-size: 12px; }
+  .news { padding-left: 20px; }
+}
+
+@media (max-width: 380px) {
+  .match { grid-template-columns: 42px minmax(0, 1fr); }
+  .badge { padding: 2px 6px; font-size: 11px; }
+  .mhead img { width: 36px; height: 36px; }
 }
