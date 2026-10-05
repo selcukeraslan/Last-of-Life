@@ -63,11 +63,11 @@ async function renderMatches() {
       <div>
         <div class="probbar"><div class="h" style="width:${k["1"].p * 100}%"></div><div class="d" style="width:${k["X"].p * 100}%"></div><div class="a" style="width:${k["2"].p * 100}%"></div></div>
         <div class="odds3">
-          ${["1", "X", "2"].map((s) => `<div class="odd"><small>${s} · ${pct(k[s].p)}</small>${oddsValue(m.iddaa_odds[s], k[s].suggested)}</div>`).join("")}
+          ${["1", "X", "2"].map((s) => `<div class="odd"><small>${s} · ${pct(k[s].p)}</small>${oddsValue(m.iddaa_odds?.[s], k[s].suggested)}</div>`).join("")}
         </div>
       </div>
       <div class="pick">
-        ${m.pick ? `<div><span class="badge b-info">${esc(m.pick.market)}</span> ${oddsValue(m.iddaa_odds[m.pick.market], m.pick.suggested)}</div><div class="muted" style="font-size:12px">olasılık ${pct(m.pick.p)}</div>` : ""}
+        ${m.pick ? `<div><span class="badge b-info">${esc(m.pick.market)}</span> ${oddsValue(m.iddaa_odds?.[m.pick.market], m.pick.suggested)}</div><div class="muted" style="font-size:12px">olasılık ${pct(m.pick.p)}</div>` : ""}
         <div style="margin-top:4px">${confBadge(m.confidence_label)}</div>
       </div>
     </div>`;
@@ -85,7 +85,7 @@ async function renderPicks() {
     ${list.slice(0, 40).map((p) => `<tr class="clickable" data-id="${p.id}" style="cursor:pointer">
       <td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td>
       <td>${fmtDateTime(p.kickoff)}</td><td><span class="badge b-info">${esc(p.pick.market)}</span></td>
-      <td>${pct(p.pick.p)}</td><td>${oddsValue(p.iddaa_odds[p.pick.market], p.pick.suggested)}</td><td>${confBadge(p.confidence_label)}</td></tr>`).join("")}
+      <td>${pct(p.pick.p)}</td><td>${oddsValue(p.iddaa_odds?.[p.pick.market], p.pick.suggested)}</td><td>${confBadge(p.confidence_label)}</td></tr>`).join("")}
   </table><p class="muted">Kombine kuponda olasılıklar çarpılır: 3 maçlık %70'lik kupon ≈ %34 tutar.</p></div>`;
 }
 
@@ -96,14 +96,15 @@ function couponOdds(p) {
     : `<b class="iddaa-odd">${p.odds}</b><span class="src src-claude">Claude oran</span><span class="claude-odd">iddaa oranı yok</span>`;
 }
 function couponSource(c) {
-  if (!c.picks.length) return "";
+  if (!c.picks?.length) return "";
   if (c.odds_source === "iddaa") return `<span class="badge b-info">oranlar: iddaa</span>`;
   if (c.odds_source === "claude") return `<span class="badge b-warn">oranlar: Claude oran</span>`;
-  return `<span class="badge b-info">oranlar: ${c.iddaa_picks}/${c.picks.length} iddaa, kalanı Claude oran</span>`;
+  return `<span class="badge b-info">oranlar: ${c.iddaa_picks ?? 0}/${c.picks.length} iddaa, kalanı Claude oran</span>`;
 }
 function couponCard(c, title, cls) {
+  c = { ...c, picks: c?.picks || [] };
   const rows = c.picks.length ? c.picks.map((p) => `<tr><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td><td>${fmtDateTime(p.kickoff)}</td><td><span class="badge ${cls}">${esc(p.market)}</span></td><td>${couponOdds(p)}</td><td>${pct(p.model_probability)}</td></tr>`).join("") : `<tr><td colspan="6" class="muted">Bu gün uygun seçim bulunamadı.</td></tr>`;
-  return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span>${couponSource(c)} <span class="badge ${cls}">${c.picks.length} maç</span></span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Model</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
+  return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span>${couponSource(c)} <span class="badge ${cls}">${c.picks.length} maç</span></span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Model</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds ?? "-"} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
 }
 
 async function renderCoupons() {
@@ -184,8 +185,8 @@ async function openMatch(id) {
       <p class="muted">İddaa oranı bulunan pazarlar otomatik doldurulur; değeri değiştirerek farklı bir oranı da hesaplayabilirsiniz.</p>
       <div class="mk-grid">${order.map((key) => `<div class="mk"><div class="k">${esc(key)}</div>
         <div class="p">${pct(k[key].p)} · adil ${k[key].fair ?? "-"}</div>
-        <div class="market-odds">${oddsValue(m.iddaa_odds[key], k[key].suggested)}</div>
-        <input type="number" step="0.01" min="1" placeholder="bahis oranı" data-p="${k[key].p}" value="${m.iddaa_odds[key] ?? ""}">
+        <div class="market-odds">${oddsValue(m.iddaa_odds?.[key], k[key].suggested)}</div>
+        <input type="number" step="0.01" min="1" placeholder="bahis oranı" data-p="${k[key].p}" value="${m.iddaa_odds?.[key] ?? ""}">
         <div class="evout"></div></div>`).join("")}</div>
       <h4>En olası skorlar</h4>
       <div class="mk-grid">${m.scores.map((s) => `<div class="mk"><div class="k">${s.score}</div><div class="p">${pct(s.p)} · oran ${s.suggested}</div></div>`).join("")}</div>
