@@ -1,6 +1,14 @@
+"""Veritabanı katmanı: DATABASE_URL varsa Supabase Postgres, yoksa yerel SQLite (data/iddia.db).
+
+İki arka uç aynı arayüzü sunar: `?` / `:isim` parametreleri, `row["kolon"]` erişimi, `execute()`.
+Postgres şeması `supabase/migrations` altındadır; SQLite şeması aşağıdaki SCHEMA'dır.
+"""
+import re
 import sqlite3
+from collections.abc import Mapping
 from contextlib import contextmanager
 
+from . import config
 from .config import DB_PATH
 
 SCHEMA = """
@@ -67,13 +75,64 @@ CREATE TABLE IF NOT EXISTS meta (
 );
 """
 
+# Testler bu değeri None'a çekerek SQLite'a zorlar (gerçek veritabanına asla dokunmaz).
+DATABASE_URL = config.DATABASE_URL
 
-def connect() -> sqlite3.Connection:
+_NAMED = re.compile(r"(?<![:\w]):([A-Za-z_]\w*)")
+
+
+def is_postgres() -> bool:
+    return bool(DATABASE_URL)
+
+
+class Connection:
+    """sqlite3 ve psycopg bağlantılarının ortak ince sarmalayıcısı."""
+
+    def __init__(self, raw, postgres: bool):
+        self._raw = raw
+        self.postgres = postgres
+
+    def _translate(self, sql: str, params):
+        if not self.postgres or params is None:
+            return sql, params
+        sql = sql.replace("%", "%%")
+        if isinstance(params, Mapping):
+            return _NAMED.sub(r"%(\1)s", sql), params
+        return sql.replace("?", "%s"), params
+
+    def execute(self, sql: str, params=None):
+        sql, params = self._translate(sql, params)
+        return self._raw.execute(sql) if params is None else self._raw.execute(sql, params)
+
+    def executescript(self, sql: str):
+        if self.postgres:
+            self._raw.execute(sql)
+        else:
+            self._raw.executescript(sql)
+
+    def commit(self):
+        self._raw.commit()
+
+    def rollback(self):
+        self._raw.rollback()
+
+    def close(self):
+        self._raw.close()
+
+
+def connect() -> Connection:
+    if DATABASE_URL:
+        import psycopg
+        from psycopg.rows import dict_row
+
+        # Transaction pooler hazırlanmış ifadeleri desteklemez -> prepare_threshold=None
+        raw = psycopg.connect(DATABASE_URL, row_factory=dict_row, prepare_threshold=None, connect_timeout=15)
+        return Connection(raw, True)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(DB_PATH, timeout=30)
-    conn.row_factory = sqlite3.Row
-    conn.execute("PRAGMA journal_mode=WAL")
-    return conn
+    raw = sqlite3.connect(DB_PATH, timeout=30)
+    raw.row_factory = sqlite3.Row
+    raw.execute("PRAGMA journal_mode=WAL")
+    return Connection(raw, False)
 
 
 @contextmanager
@@ -82,11 +141,17 @@ def session():
     try:
         yield conn
         conn.commit()
+    except BaseException:
+        conn.rollback()
+        raise
     finally:
         conn.close()
 
 
 def init_db():
+    """SQLite şemasını oluşturur. Postgres şeması supabase/migrations ile yönetilir."""
+    if is_postgres():
+        return
     with session() as conn:
         conn.executescript(SCHEMA)
 

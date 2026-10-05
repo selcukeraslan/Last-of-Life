@@ -10,6 +10,7 @@ Akış (her maç için):
 """
 import math
 import threading
+import time
 from datetime import datetime, timedelta, timezone
 
 from ..config import LEAGUES, MODEL, NEWS_LOOKBACK_DAYS
@@ -20,11 +21,28 @@ from .ratings import (Elo, Strengths, form_score, last_match_before, parse_ts, s
 
 _cache: dict = {}
 _lock = threading.Lock()
+# Serverless'ta her örneğin kendi önbelleği vardır; başka bir örnek/cron güncellediyse (last_updated_at
+# değiştiyse) önbellek atılır. Kontrol en çok STAMP_TTL saniyede bir yapılır.
+STAMP_TTL = 15.0
+_stamp = {"value": None, "checked": 0.0}
 
 
 def invalidate():
     with _lock:
         _cache.clear()
+        _stamp["checked"] = 0.0
+
+
+def _refresh_if_stale():
+    if time.monotonic() - _stamp["checked"] < STAMP_TTL:
+        return
+    with session() as conn:
+        current = get_meta(conn, "last_updated_at")
+    with _lock:
+        _stamp["checked"] = time.monotonic()
+        if current != _stamp["value"]:
+            _cache.clear()
+            _stamp["value"] = current
 
 
 def _load(conn, league: str):
@@ -181,6 +199,7 @@ def _news_view(n: dict) -> dict:
 
 
 def get_model(league: str) -> LeagueModel:
+    _refresh_if_stale()
     with _lock:
         if league in _cache:
             return _cache[league]

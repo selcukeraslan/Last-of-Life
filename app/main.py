@@ -10,7 +10,7 @@ from fastapi.staticfiles import StaticFiles
 
 from . import updater
 from .config import LEAGUES, MODEL, STATIC_DIR
-from .db import get_meta, init_db, session
+from .db import get_meta, init_db, is_postgres, session
 from .model import engine
 from .scrapers import iddaa
 from .model.coupons import TZ, build_coupons
@@ -22,11 +22,12 @@ AUTO_UPDATE_HOURS = 6
 @asynccontextmanager
 async def lifespan(_app):
     init_db()
-    with session() as conn:
-        last = get_meta(conn, "last_update")
-    if not last or datetime.now(timezone.utc) - parse_ts(last) > timedelta(hours=AUTO_UPDATE_HOURS):
-        updater.run_in_background()  # veri eskiyse açılışta arka planda güncelle
-    yield
+    if not is_postgres():  # yerel geliştirme: veri eskiyse açılışta arka planda güncelle
+        with session() as conn:
+            last = get_meta(conn, "last_updated_at") or get_meta(conn, "last_update")
+        if not last or datetime.now(timezone.utc) - parse_ts(last) > timedelta(hours=AUTO_UPDATE_HOURS):
+            updater.run_in_background()
+    yield  # Postgres (serverless): arka plan işi yok; güncelleme istek içinde veya cron'da
 
 
 app = FastAPI(title="İddia Oran Öneri", lifespan=lifespan)
@@ -56,7 +57,7 @@ def leagues():
     with session() as conn:
         rows = {r["league"]: dict(r) for r in conn.execute(
             "SELECT league, COUNT(*) total, SUM(completed) played FROM matches GROUP BY league")}
-        last = get_meta(conn, "last_update")
+        last = get_meta(conn, "last_updated_at") or get_meta(conn, "last_update")
         iddaa_last = get_meta(conn, "iddaa_last_update")
         iddaa_error = get_meta(conn, "iddaa_last_error")
         iddaa_stats = json.loads(get_meta(conn, "iddaa_stats", "null"))
@@ -120,14 +121,15 @@ def coupons(day: str | None = Query(None, description="YYYY-MM-DD (Türkiye saat
 
 
 @app.post("/api/update")
-def start_update(news: bool = True):
-    started = updater.run_in_background(with_news=news)
-    return {"started": started, **updater.state()}
+def start_update():
+    """Hızlı artımlı güncelleme (iddaa oranları + ESPN son günler), istek içinde senkron çalışır.
+    Son güncellemeden sonra 10 dk bekleme ve kilit vardır; ağır tam güncelleme cron'dadır."""
+    return updater.run_quick_update()
 
 
 @app.get("/api/update/status")
 def update_status():
-    return updater.state()
+    return updater.status()
 
 
 _bt_lock = threading.Lock()

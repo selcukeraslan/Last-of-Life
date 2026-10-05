@@ -12,16 +12,33 @@ cd ~/Desktop/IddiaOran
 
 Sonra tarayıcıda: http://127.0.0.1:8000
 
-İlk açılışta veri yoksa (veya son güncelleme 6 saatten eskiyse) arka planda otomatik güncelleme
-başlar. İlk tam çekim 6 lig için birkaç dakika sürer, sonraki güncellemeler sadece son günleri çeker.
-Arayüzdeki **Verileri güncelle** düğmesi ile elle de tetiklenebilir.
+`DATABASE_URL` tanımlı değilse yerel SQLite (`data/iddia.db`) kullanılır; bu modda ilk açılışta veri yoksa
+(veya son güncelleme 6 saatten eskiyse) arka planda tam güncelleme başlar. İlk tam çekim 6 lig için birkaç
+dakika sürer, sonrakiler sadece son günleri çeker.
 
-Komut satırından güncelleme:
+Komut satırından (ağır) tam güncelleme:
 
 ```sh
-.venv/bin/python -m app.updater              # tüm ligler + haberler
+.venv/bin/python -m app.updater              # tüm ligler + haberler + iddaa oranları
 .venv/bin/python -m app.updater --league tur.1 --no-news
 ```
+
+## Ortak veritabanı (Supabase) ve güncelleme akışı
+
+Herkese açık (Vercel) kurulumda veri ortak Supabase Postgres'tedir; biri güncelleyince herkes aynı veriyi ve
+"X dk önce güncellendi" bilgisini görür.
+
+- `DATABASE_URL`: Supabase **transaction pooler** adresi (`...pooler.supabase.com:6543`). Ortam değişkeni
+  (Vercel, GitHub secret) veya repo dışı `.env` (bkz. `.env.example`, gitignore'da) olarak verilir.
+  Tanımlıysa uygulama Postgres, değilse SQLite kullanır. Testler `.env`'yi yok sayıp her zaman SQLite kullanır.
+- Şema: `supabase/migrations/` (`supabase db push --db-url <session-pooler-url>`). Bir kerelik yerel veri
+  aktarımı: `python scripts/import_sqlite_to_postgres.py --sqlite data/iddia.db`.
+- `meta` tablosu: `last_updated_at` (son başarılı güncelleme), `update_lock` (kilidin bitiş zamanı; zaman aşımlı).
+- **Verileri güncelle** (`POST /api/update`): istek içinde senkron, hızlı artımlı güncelleme (iddaa oranları +
+  ESPN son 3 gün). Arka plan thread'i yoktur; kilit eşzamanlı çalışmayı engeller, son güncellemeden sonra
+  10 dk bekleme vardır (`status`: `updated` | `cooldown` | `busy` | `error`). Durum: `GET /api/update/status`.
+- Ağır tam güncelleme + haberler: `.github/workflows/update.yml` her 30 dk (`workflow_dispatch` ile elle de);
+  `DATABASE_URL` GitHub secret'ından okunur.
 
 ## Veri kaynakları (anahtar gerekmez)
 
@@ -72,7 +89,10 @@ app/model/predict.py   skor matrisi, pazarlar, oranlar
 app/model/engine.py    tüm parametreleri birleştiren motor + geriye dönük test
 app/main.py            FastAPI uç noktaları
 static/                web arayüzü
-data/iddia.db          SQLite veritabanı (otomatik oluşur)
+data/iddia.db          yerel SQLite veritabanı (DATABASE_URL yoksa; otomatik oluşur)
+supabase/migrations/   Postgres şeması
+scripts/               bir kerelik SQLite -> Postgres aktarımı
+.github/workflows/     30 dk'lık tam güncelleme (cron)
 ```
 
 ## Notlar

@@ -12,6 +12,19 @@ const state = { league: localStorage.getItem("league") || "tur.1", tab: "matches
 function fmtTime(iso) { return new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }); }
 function fmtDay(iso) { return new Date(iso).toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long" }); }
 function fmtDateTime(iso) { return new Date(iso).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }); }
+function fmtAgo(iso) {
+  const min = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (min < 1) return "az önce";
+  if (min < 60) return min + " dk önce";
+  if (min < 1440) return Math.floor(min / 60) + " sa önce";
+  return Math.floor(min / 1440) + " gün önce";
+}
+function showLastUpdate() {
+  const el = $("#lastUpdate");
+  const iso = state.lastUpdate;
+  el.textContent = iso ? fmtAgo(iso) + " güncellendi" : "Henüz veri yok";
+  el.title = iso ? fmtDateTime(iso) : "";
+}
 function confBadge(label) { return `<span class="badge ${label === "Yüksek" ? "b-good" : label === "Orta" ? "b-warn" : "b-bad"}">${label} güven</span>`; }
 function formDots(s) { return `<span class="formdots">${[...(s || "")].map((c) => `<span class="f-${c}">${c}</span>`).join("")}</span>`; }
 function img(src) { return src ? `<img src="${esc(src)}" alt="" loading="lazy" onerror="this.style.visibility='hidden'">` : ""; }
@@ -23,7 +36,8 @@ async function loadLeagues() {
   const d = await api("/api/leagues");
   state.leagues = d.leagues;
   state.model = d.model;
-  $("#lastUpdate").textContent = d.last_update ? "Son güncelleme: " + fmtDateTime(d.last_update) : "Henüz veri yok";
+  state.lastUpdate = d.last_update;
+  showLastUpdate();
   $("#marginPct").textContent = Math.round(d.model.margin * 100);
   $("#params").innerHTML = `<table>${Object.entries(d.model).map(([k, v]) => `<tr><td class="l"><code>${k}</code></td><td>${v}</td></tr>`).join("")}</table>`;
   $("#leagueChips").innerHTML = d.leagues.map((l) =>
@@ -227,21 +241,32 @@ async function render() {
   }
 }
 
+function updateMessage(r) {
+  if (r.status === "cooldown") return `Veriler yakın zamanda güncellendi; ${Math.max(1, Math.ceil(r.cooldown_seconds / 60))} dk sonra tekrar güncelleyebilirsiniz.`;
+  if (r.status === "busy") return "Başka bir güncelleme sürüyor…";
+  if (r.status === "error" || r.error) return "Hata: " + (r.error || "güncellenemedi");
+  return "Güncelleme tamamlandı.";
+}
+
+async function showUpdateResult(r) {
+  const bar = $("#updateBar");
+  bar.classList.remove("hidden");
+  bar.textContent = updateMessage(r);
+  setTimeout(() => bar.classList.add("hidden"), 5000);
+  await loadLeagues();
+  render();
+}
+
 async function pollUpdate() {
   const s = await api("/api/update/status");
   const bar = $("#updateBar");
   $("#btnUpdate").disabled = s.running;
-  if (s.running) {
+  if (s.running) {  // başka biri (veya cron) güncelliyor
     bar.classList.remove("hidden");
-    bar.textContent = "Güncelleniyor: " + s.message;
-    setTimeout(pollUpdate, 1500);
-  } else {
-    if (!bar.classList.contains("hidden")) {
-      bar.textContent = s.error ? "Hata: " + s.error : "Güncelleme tamamlandı.";
-      setTimeout(() => bar.classList.add("hidden"), 4000);
-      await loadLeagues();
-      render();
-    }
+    bar.textContent = "Güncelleniyor: " + (s.message || "lütfen bekleyin");
+    setTimeout(pollUpdate, 3000);
+  } else if (!bar.classList.contains("hidden")) {
+    await showUpdateResult(s);
   }
 }
 
@@ -268,7 +293,20 @@ document.addEventListener("keydown", (e) => {
   if (e.key === "Escape") closeModal();
   if ((e.key === "Enter" || e.key === " ") && e.target.matches(".match[data-id]")) openMatch(e.target.dataset.id);
 });
-$("#btnUpdate").addEventListener("click", async () => { await api("/api/update", { method: "POST" }); $("#updateBar").classList.remove("hidden"); pollUpdate(); });
+$("#btnUpdate").addEventListener("click", async () => {
+  const btn = $("#btnUpdate"), bar = $("#updateBar");
+  btn.disabled = true;
+  bar.classList.remove("hidden");
+  bar.textContent = "Güncelleniyor… (birkaç saniye sürebilir)";
+  try {
+    const r = await api("/api/update", { method: "POST" });
+    if (r.status === "busy") pollUpdate(); else await showUpdateResult(r);
+  } catch (e) {
+    bar.textContent = "Hata: " + e.message;
+  } finally {
+    btn.disabled = false;
+  }
+});
 $("#btnBacktest").addEventListener("click", async () => { await api("/api/backtest", { method: "POST" }); renderModel(); });
 $("#pickDays").addEventListener("change", renderPicks);
 $("#pickConf").addEventListener("change", renderPicks);
@@ -279,6 +317,7 @@ function shiftCouponDay(n) { const d = new Date(state.couponDate + "T12:00:00Z")
 $("#couponPrev").addEventListener("click", () => shiftCouponDay(-1));
 $("#couponNext").addEventListener("click", () => shiftCouponDay(1));
 
+setInterval(showLastUpdate, 30000);
 (async () => {
   await loadLeagues();
   render();

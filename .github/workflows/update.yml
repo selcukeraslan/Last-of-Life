@@ -1,0 +1,33 @@
+name: Veri güncelle
+
+# Ağır tam güncelleme (tüm ligler + haberler + iddaa oranları) ortak Supabase veritabanına yazılır.
+# Sitedeki "Verileri güncelle" düğmesi yalnız hızlı artımlı güncelleme yapar; geri kalanı bu iş yapar.
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+    inputs:
+      news:
+        description: "Haberleri de çek"
+        type: boolean
+        default: true
+
+concurrency:
+  group: update-data
+  cancel-in-progress: false
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install -r requirements.txt
+      - name: Güncelle
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m app.updater ${{ github.event_name == 'workflow_dispatch' && !inputs.news && '--no-news' || '' }}
