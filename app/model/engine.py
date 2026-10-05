@@ -1,0 +1,245 @@
+"""Tüm parametreleri birleştirip maç tahmini üreten ana motor.
+
+Akış (her maç için):
+  1. Poisson güçleri  -> λ_ev, λ_dep (zaman ağırlıklı, ev/deplasman ayrı hücum-savunma)
+  2. Elo farkı        -> beklenen gol üstünlüğü, Poisson ile log-uzayda harmanlanır
+  3. Form (son 5 maç) -> küçük çarpan
+  4. Haber skoru      -> duygu + sakatlık/ceza haberleri, küçük çarpan
+  5. Dinlenme süresi  -> 4 günden az dinlenen takıma küçük ceza
+  6. Dixon-Coles düzeltmeli skor matrisi -> 1X2, Alt/Üst, KG, skor olasılıkları -> oranlar
+"""
+import math
+import threading
+from datetime import datetime, timedelta, timezone
+
+from ..config import LEAGUES, MODEL, NEWS_LOOKBACK_DAYS
+from ..db import get_meta, session, set_meta
+from . import predict as P
+from .ratings import (Elo, Strengths, form_score, last_match_before, parse_ts, season_start,
+                      standings, team_form)
+
+_cache: dict = {}
+_lock = threading.Lock()
+
+
+def invalidate():
+    with _lock:
+        _cache.clear()
+
+
+def _load(conn, league: str):
+    rows = conn.execute("SELECT * FROM matches WHERE league=? ORDER BY kickoff", (league,)).fetchall()
+    done, upcoming = [], []
+    for r in rows:
+        m = dict(r)
+        m["ts"] = parse_ts(m["kickoff"])
+        (done if m["completed"] else upcoming).append(m)
+    return done, upcoming
+
+
+def news_scores(conn, league: str, at: datetime) -> dict:
+    since = (at - timedelta(days=NEWS_LOOKBACK_DAYS)).isoformat()
+    rows = conn.execute(
+        "SELECT team, title, link, source, published, sentiment, injury FROM news "
+        "WHERE league=? AND published>=? ORDER BY published DESC", (league, since)).fetchall()
+    out: dict[str, dict] = {}
+    for r in rows:
+        d = out.setdefault(r["team"], {"items": [], "wsent": 0.0, "w": 0.0, "injuries": 0})
+        age = max(0.0, (at - parse_ts(r["published"])).total_seconds() / 86400)
+        w = 0.5 ** (age / 3)  # 3 günlük yarı ömür
+        d["wsent"] += w * r["sentiment"]
+        d["w"] += w
+        d["injuries"] += r["injury"]
+        d["items"].append(dict(r))
+    for d in out.values():
+        sent = d["wsent"] / d["w"] if d["w"] else 0.0
+        inj_pen = 0.15 * min(d["injuries"], 4)
+        d["sentiment"] = round(sent, 3)
+        d["score"] = round(max(-1.0, min(1.0, 0.6 * sent - inj_pen)), 3)
+        del d["wsent"], d["w"]
+    return out
+
+
+class LeagueModel:
+    def __init__(self, league: str, done: list[dict], upcoming: list[dict], news: dict):
+        self.league = league
+        self.done = done
+        self.upcoming = upcoming
+        self.news = news
+        self.elo = Elo()
+        for m in done:
+            self.elo.update(m)
+        now = datetime.now(timezone.utc)
+        self.strengths = Strengths(done, now)
+        self.season_start = season_start(done)
+        self.table = standings(done, self.season_start)
+        self.pos = {r["team"]: r for r in self.table}
+        self.total_goals = self.strengths.mu_h + self.strengths.mu_a
+
+    # --- tek maç tahmini ---------------------------------------------------
+    def predict(self, home: str, away: str, kickoff: datetime, strengths=None, elo=None,
+                history=None, news=None, detail=True) -> dict:
+        st = strengths or self.strengths
+        el = elo or self.elo
+        hist = self.done if history is None else history
+        news = self.news if news is None else news
+
+        lh_p, la_p = st.lambdas(home, away)
+        elo_h, elo_a = el.get(home), el.get(away)
+        diff = elo_h + MODEL["elo_home_adv"] - elo_a
+        total = st.mu_h + st.mu_a
+        sup = MODEL["elo_goals_per_point"] * diff  # Elo farkını gol üstünlüğüne çevirir
+        lh_e = max(0.15, (total + sup) / 2)
+        la_e = max(0.15, (total - sup) / 2)
+        w = MODEL["elo_weight"]
+        log_h = (1 - w) * math.log(lh_p) + w * math.log(lh_e)
+        log_a = (1 - w) * math.log(la_p) + w * math.log(la_e)
+
+        form_h = team_form(hist, home, kickoff)
+        form_a = team_form(hist, away, kickoff)
+        fs_h, fs_a = form_score(form_h), form_score(form_a)
+        f_adj = MODEL["form_coef"] * (fs_h - fs_a) / 2
+        log_h += f_adj
+        log_a -= f_adj
+
+        nh, na = news.get(home, {}), news.get(away, {})
+        n_adj = MODEL["news_coef"] * (nh.get("score", 0.0) - na.get("score", 0.0)) / 2
+        log_h += n_adj
+        log_a -= n_adj
+
+        rest = {}
+        for side, team in (("home", home), ("away", away)):
+            last = last_match_before(hist, team, kickoff)
+            rest[side] = round((kickoff - last).total_seconds() / 86400, 1) if last else None
+        r_adj_h = -MODEL["rest_coef"] if rest["home"] is not None and rest["home"] < 4 else 0.0
+        r_adj_a = -MODEL["rest_coef"] if rest["away"] is not None and rest["away"] < 4 else 0.0
+        log_h += r_adj_h
+        log_a += r_adj_a
+
+        lh, la = math.exp(log_h), math.exp(log_a)
+        mat = P.score_matrix(lh, la)
+        mk = P.markets(mat)
+        out = {"lambda_home": round(lh, 3), "lambda_away": round(la, 3), **mk}
+        if not detail:
+            return out
+
+        n_h = st.n_weighted.get(home, 0)
+        n_a = st.n_weighted.get(away, 0)
+        data_q = min(1.0, min(n_h, n_a) / 15)
+        pmax = max(mk["markets"]["1"]["p"], mk["markets"]["X"]["p"], mk["markets"]["2"]["p"])
+        conf = 0.6 * data_q + 0.4 * min(1.0, (pmax - 0.33) / 0.4)
+        out.update({
+            "pick": P.best_pick(mk["markets"]),
+            "confidence": round(conf, 2),
+            "confidence_label": "Yüksek" if conf >= 0.7 else "Orta" if conf >= 0.45 else "Düşük",
+            "factors": {
+                "poisson": {"home": round(lh_p, 3), "away": round(la_p, 3),
+                            "league_home_avg": round(st.mu_h, 2), "league_away_avg": round(st.mu_a, 2),
+                            "att_home": round(st.att_h.get(home, 1), 2), "def_home": round(st.def_h.get(home, 1), 2),
+                            "att_away": round(st.att_a.get(away, 1), 2), "def_away": round(st.def_a.get(away, 1), 2)},
+                "elo": {"home": round(elo_h), "away": round(elo_a), "diff_with_home_adv": round(diff),
+                        "expected_home": round(el.expected(home, away), 3),
+                        "lambda_home": round(lh_e, 3), "lambda_away": round(la_e, 3)},
+                "form": {"home": form_h, "away": form_a, "home_ppg": round(fs_h, 2), "away_ppg": round(fs_a, 2),
+                         "log_adj": round(f_adj, 3)},
+                "news": {"home": _news_view(nh), "away": _news_view(na), "log_adj": round(n_adj, 3)},
+                "rest": {"home_days": rest["home"], "away_days": rest["away"],
+                         "home_adj": r_adj_h, "away_adj": r_adj_a},
+                "table": {"home": self.pos.get(home), "away": self.pos.get(away)},
+                "h2h": self.h2h(home, away),
+            },
+        })
+        return out
+
+    def h2h(self, a: str, b: str, n: int = 6) -> list[dict]:
+        res = [m for m in self.done if {m["home"], m["away"]} == {a, b}]
+        return [{"date": m["kickoff"][:10], "home": m["home"], "away": m["away"],
+                 "score": f'{m["home_goals"]}-{m["away_goals"]}'} for m in res[-n:]][::-1]
+
+    def upcoming_predictions(self, days: int = 14) -> list[dict]:
+        now = datetime.now(timezone.utc)
+        out = []
+        for m in self.upcoming:
+            if m["ts"] < now - timedelta(hours=2) or m["ts"] > now + timedelta(days=days):
+                continue
+            p = self.predict(m["home"], m["away"], m["ts"])
+            out.append({"id": m["id"], "league": self.league, "kickoff": m["kickoff"],
+                        "home": m["home"], "away": m["away"], "status": m["status"],
+                        "home_logo": _logo(m["home_id"]), "away_logo": _logo(m["away_id"]), **p})
+        return out
+
+
+def _logo(team_id):
+    return f"https://a.espncdn.com/i/teamlogos/soccer/500/{team_id}.png" if team_id else None
+
+
+def _news_view(n: dict) -> dict:
+    if not n:
+        return {"score": 0.0, "sentiment": 0.0, "injuries": 0, "items": []}
+    return {"score": n["score"], "sentiment": n["sentiment"], "injuries": n["injuries"],
+            "items": n["items"][:8]}
+
+
+def get_model(league: str) -> LeagueModel:
+    with _lock:
+        if league in _cache:
+            return _cache[league]
+    with session() as conn:
+        done, upcoming = _load(conn, league)
+        news = news_scores(conn, league, datetime.now(timezone.utc))
+    model = LeagueModel(league, done, upcoming, news)
+    with _lock:
+        _cache[league] = model
+    return model
+
+
+# --- Geriye dönük test --------------------------------------------------------
+def backtest(league: str, min_history: int = 120, step: int = 1) -> dict:
+    """Her maçı, sadece o maçtan önceki verilerle tahmin edip gerçek sonuçla karşılaştırır.
+    (Geçmiş haber verisi olmadığından haber etkisi bu testte yoktur.)"""
+    with session() as conn:
+        done, _ = _load(conn, league)
+    if len(done) <= min_history:
+        return {"league": league, "n": 0}
+    base = LeagueModel(league, [], [], {})
+    elo = Elo()
+    for m in done[:min_history]:
+        elo.update(m)
+    n = hit = 0
+    brier = logloss = 0.0
+    ou_hit = 0
+    for idx in range(min_history, len(done), step):
+        m = done[idx]
+        hist = done[:idx]
+        st = Strengths(hist, m["ts"])
+        p = base.predict(m["home"], m["away"], m["ts"], strengths=st, elo=elo, history=hist,
+                         news={}, detail=False)["markets"]
+        probs = [p["1"]["p"], p["X"]["p"], p["2"]["p"]]
+        hg, ag = m["home_goals"], m["away_goals"]
+        actual = 0 if hg > ag else 1 if hg == ag else 2
+        n += 1
+        hit += int(max(range(3), key=lambda i: probs[i]) == actual)
+        brier += sum((probs[i] - (1 if i == actual else 0)) ** 2 for i in range(3))
+        logloss += -math.log(max(1e-9, probs[actual]))
+        ou_hit += int((p["Ü2.5"]["p"] >= 0.5) == (hg + ag >= 3))
+        for k in range(idx, min(idx + step, len(done))):
+            elo.update(done[k])
+    return {"league": league, "n": n, "accuracy_1x2": round(hit / n, 3), "brier": round(brier / n, 3),
+            "logloss": round(logloss / n, 3), "accuracy_ou25": round(ou_hit / n, 3)}
+
+
+def run_backtests() -> dict:
+    res = {lg: backtest(lg) for lg in LEAGUES}
+    with session() as conn:
+        import json
+        set_meta(conn, "backtest", json.dumps(res))
+        set_meta(conn, "backtest_at", datetime.now(timezone.utc).isoformat())
+    return res
+
+
+def cached_backtest() -> dict | None:
+    import json
+    with session() as conn:
+        v = get_meta(conn, "backtest")
+        at = get_meta(conn, "backtest_at")
+    return {"results": json.loads(v), "at": at} if v else None

@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>İddia Oran Öneri</title>
+  <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">⚽ <b>İddia Oran</b> <span class="muted">öneri motoru</span></div>
+    <nav class="tabs">
+      <button data-tab="matches" class="active">Maçlar</button>
+      <button data-tab="picks">Öneriler</button>
+      <button data-tab="table">Puan Durumu</button>
+      <button data-tab="model">Model</button>
+    </nav>
+    <div class="update">
+      <span id="lastUpdate" class="muted"></span>
+      <button id="btnUpdate" class="btn">Verileri güncelle</button>
+    </div>
+  </header>
+  <div id="updateBar" class="update-bar hidden"></div>
+
+  <main>
+    <div id="leagueChips" class="chips"></div>
+
+    <section id="tab-matches" class="tab">
+      <div id="matches" class="match-list"></div>
+    </section>
+
+    <section id="tab-picks" class="tab hidden">
+      <div class="toolbar">
+        <label>Gün: <select id="pickDays"><option>3</option><option selected>7</option><option>14</option></select></label>
+        <label>Min. güven: <select id="pickConf"><option value="0">Hepsi</option><option value="0.45">Orta+</option><option value="0.7">Yüksek</option></select></label>
+      </div>
+      <div id="picks"></div>
+    </section>
+
+    <section id="tab-table" class="tab hidden">
+      <div id="table"></div>
+    </section>
+
+    <section id="tab-model" class="tab hidden">
+      <div class="card prose">
+        <h3>Model nasıl çalışıyor?</h3>
+        <ol>
+          <li><b>Poisson gücü:</b> Her takımın evde ve deplasmanda attığı/yediği goller, yeni maçlar daha ağır olacak şekilde lig ortalamasına göre oranlanır. Az maç oynamış takımlar lig ortalamasına çekilir.</li>
+          <li><b>Elo puanı:</b> Tüm sonuçlardan (gol farkı ağırlıklı) güncellenen güç puanı; ev sahibi avantajı dahil. Poisson tahminiyle harmanlanır.</li>
+          <li><b>Form:</b> Son 5 maçın ağırlıklı puan ortalaması.</li>
+          <li><b>Haberler:</b> Son 7 günün Google Haberler başlıkları taranır; olumlu/olumsuz kelimeler ve sakatlık / ceza haberleri skora dönüşür.</li>
+          <li><b>Dinlenme:</b> 4 günden az dinlenen takıma küçük bir ceza.</li>
+          <li>Ortaya çıkan beklenen gollerden <b>Dixon-Coles</b> düzeltmeli skor dağılımı hesaplanır; 1X2, Alt/Üst, KG ve skor olasılıkları buradan gelir.</li>
+          <li><b>Adil oran</b> = 1 / olasılık. <b>Önerilen oran</b> = adil orana %<span id="marginPct"></span> marj eklenmiş hali. Bir sitenin oranı önerilen orandan yüksekse "değerli" sayılır.</li>
+        </ol>
+      </div>
+      <div class="card">
+        <div class="row-between"><h3>Geriye dönük test</h3><button id="btnBacktest" class="btn">Testi çalıştır</button></div>
+        <p class="muted">Her maç, sadece o tarihten önceki verilerle tahmin edilip gerçek sonuçla karşılaştırılır (haber etkisi hariç). Brier skoru ne kadar düşükse o kadar iyi; rastgele tahmin ≈ 0.667.</p>
+        <div id="backtest"></div>
+      </div>
+      <div class="card"><h3>Parametreler</h3><div id="params"></div>
+        <p class="muted">Değiştirmek için <code>app/config.py</code> içindeki <code>MODEL</code> sözlüğünü düzenleyip sunucuyu yeniden başlatın.</p></div>
+    </section>
+  </main>
+
+  <div id="modal" class="modal hidden">
+    <div class="modal-body" id="modalBody"></div>
+  </div>
+
+  <footer class="muted">Tahminler istatistiksel tahmindir, kesinlik içermez. Sorumlu oynayın; 18 yaş altına uygun değildir.</footer>
+  <script src="/static/app.js"></script>
+</body>
+</html>

@@ -1,0 +1,89 @@
+:root {
+  --bg: #0f1419; --panel: #171e26; --panel2: #1e2731; --line: #2a3542;
+  --text: #e6edf3; --muted: #8b98a5; --accent: #2fbf71; --accent2: #3b82f6;
+  --warn: #f59e0b; --bad: #ef4444; --good: #22c55e;
+  --home: #3b82f6; --draw: #8b98a5; --away: #f97316;
+}
+@media (prefers-color-scheme: light) {
+  :root { --bg: #f4f6f8; --panel: #fff; --panel2: #f0f3f6; --line: #dde3ea; --text: #17202a; --muted: #5f6b77; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; }
+.muted { color: var(--muted); }
+.hidden { display: none !important; }
+code { background: var(--panel2); padding: 1px 5px; border-radius: 4px; }
+
+.topbar { position: sticky; top: 0; z-index: 5; display: flex; gap: 16px; align-items: center; justify-content: space-between;
+  padding: 10px 20px; background: var(--panel); border-bottom: 1px solid var(--line); flex-wrap: wrap; }
+.brand { font-size: 17px; }
+.tabs button { background: none; border: 0; color: var(--muted); font-size: 14px; padding: 8px 12px; cursor: pointer; border-radius: 8px; }
+.tabs button.active { color: var(--text); background: var(--panel2); }
+.update { display: flex; gap: 10px; align-items: center; }
+.btn { background: var(--accent); color: #fff; border: 0; border-radius: 8px; padding: 7px 12px; cursor: pointer; font-weight: 600; }
+.btn:disabled { opacity: .5; cursor: default; }
+.update-bar { background: var(--panel2); padding: 6px 20px; font-size: 13px; color: var(--muted); border-bottom: 1px solid var(--line); }
+
+main { max-width: 1100px; margin: 0 auto; padding: 16px; }
+.chips { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+.chip { border: 1px solid var(--line); background: var(--panel); color: var(--text); padding: 6px 12px; border-radius: 999px; cursor: pointer; }
+.chip.active { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+.toolbar { display: flex; gap: 16px; margin-bottom: 12px; }
+select, input { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 4px 6px; }
+
+.card { background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px 16px; margin-bottom: 12px; }
+.row-between { display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+.prose li { margin-bottom: 6px; }
+
+.day-head { margin: 18px 0 8px; color: var(--muted); font-weight: 600; text-transform: capitalize; }
+.match { display: grid; grid-template-columns: 60px 1fr 260px 150px; gap: 14px; align-items: center; cursor: pointer; }
+.match:hover { border-color: var(--accent2); }
+.time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.teams div { display: flex; align-items: center; gap: 8px; margin: 2px 0; }
+.teams img, .logo { width: 20px; height: 20px; object-fit: contain; }
+.xg { color: var(--muted); font-size: 12px; margin-left: auto; font-variant-numeric: tabular-nums; }
+.probbar { display: flex; height: 8px; border-radius: 4px; overflow: hidden; margin-bottom: 6px; }
+.probbar .h { background: var(--home); } .probbar .d { background: var(--draw); } .probbar .a { background: var(--away); }
+.odds3 { display: grid; grid-template-columns: repeat(3, 1fr); gap: 6px; text-align: center; }
+.odd { background: var(--panel2); border-radius: 6px; padding: 4px; }
+.odd small { display: block; color: var(--muted); font-size: 11px; }
+.odd b { font-variant-numeric: tabular-nums; }
+.pick { text-align: right; }
+.badge { display: inline-block; padding: 2px 8px; border-radius: 999px; font-size: 12px; font-weight: 600; }
+.b-good { background: rgba(34,197,94,.15); color: var(--good); }
+.b-warn { background: rgba(245,158,11,.15); color: var(--warn); }
+.b-bad { background: rgba(239,68,68,.15); color: var(--bad); }
+.b-info { background: rgba(59,130,246,.15); color: var(--accent2); }
+
+table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
+th, td { padding: 6px 8px; border-bottom: 1px solid var(--line); text-align: center; }
+th { color: var(--muted); font-weight: 600; font-size: 12px; }
+td.l, th.l { text-align: left; }
+.formdots span { display: inline-block; width: 18px; height: 18px; line-height: 18px; border-radius: 4px; font-size: 11px; font-weight: 700; color: #fff; margin-right: 2px; text-align: center; }
+.f-G { background: var(--good); } .f-B { background: #94a3b8; } .f-M { background: var(--bad); }
+
+.modal { position: fixed; inset: 0; background: rgba(0,0,0,.55); display: flex; justify-content: center; align-items: flex-start; overflow-y: auto; z-index: 10; padding: 30px 12px; }
+.modal-body { background: var(--bg); border: 1px solid var(--line); border-radius: 14px; width: 100%; max-width: 980px; padding: 18px; position: relative; }
+.close { position: absolute; right: 14px; top: 10px; background: none; border: 0; color: var(--muted); font-size: 22px; cursor: pointer; }
+.mhead { display: flex; align-items: center; justify-content: center; gap: 22px; text-align: center; margin-bottom: 10px; }
+.mhead .team { width: 220px; }
+.mhead img { width: 48px; height: 48px; }
+.mhead .vs { font-size: 26px; font-weight: 700; }
+.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+.mk-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.mk { background: var(--panel2); border-radius: 8px; padding: 8px; }
+.mk .k { font-weight: 700; }
+.mk .p { color: var(--muted); font-size: 12px; }
+.mk input { width: 70px; margin-top: 4px; }
+.mk .ev { font-size: 12px; margin-top: 3px; }
+.kv { display: grid; grid-template-columns: 1fr auto auto; gap: 4px 12px; }
+.kv .h { text-align: right; color: var(--home); } .kv .a { text-align: right; color: var(--away); }
+.news li { margin-bottom: 5px; }
+.news a { color: var(--text); text-decoration: none; } .news a:hover { text-decoration: underline; }
+footer { text-align: center; padding: 20px; font-size: 12px; }
+
+@media (max-width: 760px) {
+  .match { grid-template-columns: 1fr; }
+  .pick { text-align: left; }
+  .grid2 { grid-template-columns: 1fr; }
+  .mhead .team { width: auto; }
+}
