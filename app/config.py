@@ -1,8 +1,26 @@
 """Uygulama ayarları. Hepsi lokal, API anahtarı gerekmez."""
+import os
 from datetime import date
 from pathlib import Path
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+
+
+def _load_dotenv(path: Path):
+    """Repo dışına sızmayan yerel .env dosyasını okur; gerçek ortam değişkeni her zaman önceliklidir."""
+    if not path.is_file():
+        return
+    for line in path.read_text().splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, _, value = line.partition("=")
+            os.environ.setdefault(key.strip(), value.strip().strip("\"'"))
+
+
+_load_dotenv(BASE_DIR / ".env")
+
+# Doluysa ortak Supabase Postgres (transaction pooler, port 6543); boşsa yerel SQLite dosyası.
+DATABASE_URL = os.environ.get("DATABASE_URL") or None
 DB_PATH = BASE_DIR / "data" / "iddia.db"
 STATIC_DIR = BASE_DIR / "static"
 
