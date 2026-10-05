@@ -17,6 +17,13 @@ URL = "https://www.espn.com/soccer/fixtures/_/date/{day}/league/{league}"
 _EMBED = re.compile(r"window\['__espnfitt__'\]=(\{.*?\});</script>", re.S)
 
 
+def _goals(value) -> int | None:
+    try:
+        return int(value)
+    except (TypeError, ValueError):
+        return None
+
+
 def fetch_html(url: str, timeout: int = 25, retries: int = 3) -> str:
     # gzip ile sayfa ~540 KB yerine ~75 KB iner
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, "Accept-Encoding": "gzip"})
@@ -32,8 +39,8 @@ def fetch_html(url: str, timeout: int = 25, retries: int = 3) -> str:
     raise RuntimeError(f"Boş yanıt: {url}")
 
 
-def fetch_window(league: str, day: date) -> dict[str, list[dict]]:
-    html = fetch_html(URL.format(day=day.strftime("%Y%m%d"), league=league))
+def fetch_window(league: str, day: date, **kw) -> dict[str, list[dict]]:
+    html = fetch_html(URL.format(day=day.strftime("%Y%m%d"), league=league), **kw)
     m = _EMBED.search(html)
     if not m:
         raise RuntimeError(f"ESPN sayfa yapısı değişmiş olabilir: {league} {day}")
@@ -58,8 +65,8 @@ def parse_event(ev: dict, league: str) -> dict | None:
         "away": away.get("displayName"),
         "home_id": str(home.get("id")),
         "away_id": str(away.get("id")),
-        "home_goals": home.get("score") if completed else None,
-        "away_goals": away.get("score") if completed else None,
+        "home_goals": _goals(home.get("score")) if completed else None,
+        "away_goals": _goals(away.get("score")) if completed else None,
         "completed": 1 if completed else 0,
         "status": detail or status.get("state"),
     }
@@ -114,3 +121,38 @@ def sync_league(conn, league: str, progress=None) -> int:
     # Son 5 günü her seferinde yeniden kontrol et (ertelenen/yeni biten maçlar)
     set_meta(conn, f"espn_done_{league}", (today - timedelta(days=5)).isoformat())
     return count
+
+
+def sync_recent(conn, league: str, days_back: int = 3, max_requests: int = 2, progress=None) -> tuple[int, bool]:
+    """Hızlı artımlı güncelleme: yalnız son `days_back` gün ve yakın fikstür (istek başına ~1 haftalık pencere).
+
+    Dönen değer: (işlenen maç sayısı, en az bir istek başarılı mı). Serverless istek süresine sığması için
+    istek sayısı sınırlı, deneme/zaman aşımı kısadır; tam geçmiş `sync_league` ile (cron) çekilir.
+    """
+    today = date.today()
+    day = today - timedelta(days=days_back)
+    count = 0
+    ok = False
+    for _ in range(max_requests):
+        if day > today + timedelta(days=1):
+            break
+        if progress:
+            progress(f"{league}: {day.isoformat()} çevresi çekiliyor")
+        try:
+            window = fetch_window(league, day, timeout=12, retries=2)
+        except Exception as exc:
+            if progress:
+                progress(f"{league}: {day} alınamadı ({exc})")
+            day += timedelta(days=3)
+            continue
+        ok = True
+        for events in window.values():
+            for ev in events:
+                parsed = parse_event(ev, league)
+                if parsed:
+                    upsert(conn, parsed)
+                    count += 1
+        conn.commit()
+        days = sorted(date(int(k[:4]), int(k[4:6]), int(k[6:])) for k in window.keys())
+        day = days[-1] if days and days[-1] > day else day + timedelta(days=3)
+    return count, ok

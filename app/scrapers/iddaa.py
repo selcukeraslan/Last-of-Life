@@ -188,8 +188,8 @@ def match_event(event: dict, fixtures: list[dict]) -> tuple[dict | None, float]:
     return best, round(best_score, 3)
 
 
-def sync_odds(conn, progress=None) -> dict:
-    payload = fetch_json()
+def sync_odds(conn, progress=None, retries: int = 3) -> dict:
+    payload = fetch_json(retries=retries)
     raw_events = payload["data"].get("events", [])
     events = [parsed for raw in raw_events if (parsed := parse_event(raw))]
     fixtures = [dict(row) for row in conn.execute(
