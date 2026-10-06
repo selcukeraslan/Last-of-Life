@@ -24,7 +24,9 @@ DATABASE_URL = os.environ.get("DATABASE_URL") or None
 DB_PATH = BASE_DIR / "data" / "iddia.db"
 STATIC_DIR = BASE_DIR / "static"
 
-# ESPN fikstür sayfalarındaki lig kısaltmaları
+# Lig anahtarları ESPN fikstür sayfalarındaki kısaltmalardır. Ek alanlar:
+#   source: "espn" (varsayılan) | "tff" (ESPN'de verisi olmayan lig; resmi TFF sitesinden)
+#   kind:   "league" (varsayılan) | "cup" (ligler arası takımların oynadığı Avrupa kupası)
 LEAGUES = {
     "tur.1": {"name": "Süper Lig", "country": "Türkiye", "lang": "tr"},
     "eng.1": {"name": "Premier League", "country": "İngiltere", "lang": "en"},
@@ -32,7 +34,16 @@ LEAGUES = {
     "ita.1": {"name": "Serie A", "country": "İtalya", "lang": "en"},
     "ger.1": {"name": "Bundesliga", "country": "Almanya", "lang": "en"},
     "fra.1": {"name": "Ligue 1", "country": "Fransa", "lang": "en"},
+    "tur.2": {"name": "TFF 1. Lig", "country": "Türkiye", "lang": "tr", "source": "tff"},
+    "ned.1": {"name": "Eredivisie", "country": "Hollanda", "lang": "en"},
+    "por.1": {"name": "Liga Portugal", "country": "Portekiz", "lang": "en"},
+    "uefa.champions": {"name": "UEFA Şampiyonlar Ligi", "country": "Avrupa", "lang": "en", "kind": "cup"},
+    "uefa.europa": {"name": "UEFA Avrupa Ligi", "country": "Avrupa", "lang": "en", "kind": "cup"},
 }
+
+
+def is_cup(league: str) -> bool:
+    return LEAGUES.get(league, {}).get("kind") == "cup"
 
 # Geçmiş veri: bir önceki sezonun başından itibaren çekilir (Elo ısınması için)
 HISTORY_START = date(2025, 7, 15)

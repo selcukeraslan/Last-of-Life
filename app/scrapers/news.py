@@ -8,7 +8,7 @@ import xml.etree.ElementTree as ET
 from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
-from ..config import LEAGUES, NEWS_LOOKBACK_DAYS, REQUEST_DELAY_SEC, USER_AGENT
+from ..config import LEAGUES, NEWS_LOOKBACK_DAYS, REQUEST_DELAY_SEC, USER_AGENT, is_cup
 from ..sentiment import analyze
 
 # ESPN İngilizce/ASCII isimlerini Türkçe haber aramasında daha iyi sonuç veren hallere çevirir
@@ -118,6 +118,8 @@ def sync_news(conn, days_ahead: int = 10, progress=None) -> int:
         "UNION SELECT DISTINCT league, away FROM matches WHERE completed=0 AND kickoff BETWEEN ? AND ?",
         ((now - timedelta(hours=3)).isoformat(), (now + timedelta(days=days_ahead)).isoformat()) * 2,
     ).fetchall()
+    # Kupa takımlarının haberi kendi liglerinden gelir (kupa modeli onları birleştirir); ayrıca çekilmez
+    rows = [r for r in rows if not is_cup(r["league"])]
     total = 0
     for i, r in enumerate(rows, 1):
         lang = LEAGUES[r["league"]]["lang"]
