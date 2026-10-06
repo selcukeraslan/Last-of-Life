@@ -76,6 +76,30 @@ API: `/api/coupons?day=YYYY-MM-DD`. Testler: `.venv/bin/python -m unittest disco
 **Model** sekmesindeki geriye dönük test her maçı sadece öncesindeki verilerle tahmin edip doğruluğu ölçer.
 Parametreler `app/config.py` içindeki `MODEL` sözlüğündedir.
 
+## Telegram kanalı (günlük kupon + sonuç)
+
+`app/telegram_bot.py` Telegram Bot API'sini (kütüphanesiz, HTTP) kullanır. Türkiye saatiyle 09:00-15:00
+arasında o günün **banko + sürpriz** kuponunu kanala gönderir; kuponun tüm maçları bitince sonucu
+(✅/❌, skorlar) kupon mesajına yanıt olarak yazar. Aynı gün/tür ikinci kez gönderilmez: `telegram_posts`
+tablosundaki (gün, tür) kaydı önce alınır, gönderim başarısız olursa bırakılır ve sonraki çalıştırmada
+tekrar denenir. `TELEGRAM_BOT_TOKEN` veya `TELEGRAM_CHAT_ID` tanımlı değilse hiçbir şey yapmadan çıkar.
+
+Kurulum (bir kez):
+1. Telegram'da **@BotFather** → `/newbot` ile bot oluşturun, verdiği **token**'ı kopyalayın.
+2. Bir **kanal** oluşturun (herkese açık ise `@kanal_adi`, özel ise sayısal kimlik `-100…` kullanılır).
+3. Botu kanala **yönetici** olarak ekleyin ("Mesaj gönder" yetkisi yeterli).
+4. Kanal kimliği: herkese açık kanalda `@kanal_adi`; özel kanalda kanala bir mesaj atıp
+   `https://api.telegram.org/bot<TOKEN>/getUpdates` yanıtındaki `chat.id` değerini (`-100…`) alın.
+5. GitHub → repo → Settings → Secrets and variables → Actions: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
+   ekleyin (`DATABASE_URL` zaten var).
+6. Supabase'e `supabase/migrations/20261006000000_telegram_posts.sql` migration'ını uygulayın
+   (yerel SQLite'ta tablo otomatik oluşur).
+7. İlk deneme: Actions → "Telegram kupon" → *Run workflow* (`force` işaretli).
+
+Workflow (`.github/workflows/telegram.yml`) her saatin 20. dakikasında çalışır; zamanlanmış workflow'lar
+yalnızca varsayılan dalda (main) tetiklenir. Yerelde: `python -m app.telegram_bot --dry-run` mesajı göndermeden
+ekrana yazar; `--force` sabah penceresini, `--day YYYY-MM-DD` günü değiştirir.
+
 ## Dosyalar
 
 ```
@@ -88,11 +112,12 @@ app/model/ratings.py   Elo, Poisson güçleri, form, puan durumu
 app/model/predict.py   skor matrisi, pazarlar, oranlar
 app/model/engine.py    tüm parametreleri birleştiren motor + geriye dönük test
 app/main.py            FastAPI uç noktaları
+app/telegram_bot.py    Telegram kanalına günlük kupon + sonuç paylaşımı
 static/                web arayüzü
 data/iddia.db          yerel SQLite veritabanı (DATABASE_URL yoksa; otomatik oluşur)
 supabase/migrations/   Postgres şeması
 scripts/               bir kerelik SQLite -> Postgres aktarımı
-.github/workflows/     30 dk'lık tam güncelleme (cron)
+.github/workflows/     30 dk'lık tam güncelleme + saatlik Telegram paylaşımı (cron)
 ```
 
 ## Notlar

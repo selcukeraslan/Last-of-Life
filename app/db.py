@@ -73,6 +73,16 @@ CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
 );
+CREATE TABLE IF NOT EXISTS telegram_posts (
+    day TEXT NOT NULL,              -- YYYY-MM-DD (Türkiye saati)
+    kind TEXT NOT NULL,             -- 'coupon' | 'result'
+    status TEXT NOT NULL,           -- 'sending' (hak alındı) | 'sent'
+    message_id TEXT,
+    payload TEXT,                   -- coupon: gönderilen kuponların JSON özeti
+    created_at TEXT NOT NULL,
+    sent_at TEXT,
+    PRIMARY KEY (day, kind)
+);
 """
 
 # Testler bu değeri None'a çekerek SQLite'a zorlar (gerçek veritabanına asla dokunmaz).
