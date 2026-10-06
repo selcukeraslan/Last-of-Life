@@ -156,3 +156,6 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
   .odd-move { white-space: normal; font-size: 10px; }
   .drop-row { flex-direction: column; align-items: flex-start; }
 }
+
+/* Değerli Oranlar sekmesi */
+.value-table .ev-pos { color: var(--good); }
