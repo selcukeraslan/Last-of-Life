@@ -128,6 +128,23 @@ def _invalidate_models():
     engine.invalidate()
 
 
+def _track_coupons(freeze: bool):
+    """Kupon geçmişi: (tam güncellemede) bugünün kuponunu dondurur, biten maçlara göre işaretler.
+    Hata güncellemeyi bozmaz."""
+    try:
+        from .model import coupon_history
+        if freeze:
+            saved = coupon_history.freeze_today()
+            if saved:
+                _progress(f"Kupon geçmişine kaydedildi: {', '.join(saved)}")
+        with session() as conn:
+            done = coupon_history.settle(conn)
+        if done["picks"]:
+            _progress(f"Kupon sonuçları: {done['picks']} seçim, {done['coupons']} kupon sonuçlandı")
+    except Exception as exc:
+        _progress(f"Kupon geçmişi güncellenemedi: {exc}")
+
+
 # --- Hızlı güncelleme (web isteği içinde) -----------------------------------------
 def run_quick_update() -> dict:
     """Senkron, hızlı artımlı güncelleme. Dönen `status`: updated | cooldown | busy | error."""
@@ -165,6 +182,7 @@ def run_quick_update() -> dict:
                 _finish(conn, error)
     if not skipped and error is None:
         _invalidate_models()
+        _track_coupons(freeze=False)  # hızlı yol yalnız sonuçlandırır; dondurma ağır model kurar
     return {"status": "cooldown" if skipped else "error" if error else "updated", **status()}
 
 
@@ -199,6 +217,7 @@ def run_update(leagues=None, with_news=True, wait_lock_seconds: int = 0) -> str:
             _finish(conn, error)
     if error is None:
         _invalidate_models()
+        _track_coupons(freeze=True)
     return "error" if error else "ok"
 
 

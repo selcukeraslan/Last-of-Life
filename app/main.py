@@ -12,7 +12,8 @@ from . import odds_history, pwa, updater
 from .api_odds_history import router as odds_history_router
 from .config import LEAGUES, MODEL, STATIC_DIR
 from .db import get_meta, init_db, is_postgres, session
-from .model import engine
+from .coupon_history_api import router as coupon_history_router
+from .model import coupon_history, engine
 from .scrapers import iddaa
 from .model.coupons import TZ, build_coupons
 from .model.ratings import parse_ts
@@ -34,6 +35,7 @@ async def lifespan(_app):
 app = FastAPI(title="İddia Oran Öneri", lifespan=lifespan)
 app.include_router(pwa.router)  # /manifest.webmanifest, /sw.js
 app.include_router(odds_history_router)
+app.include_router(coupon_history_router)
 
 
 def _check_league(league: str):
@@ -122,7 +124,9 @@ def coupons(day: str | None = Query(None, description="YYYY-MM-DD (Türkiye saat
         target = date.fromisoformat(day) if day else datetime.now(TZ).date()
     except ValueError as exc:
         raise HTTPException(400, "Gün YYYY-AA-GG biçiminde olmalı") from exc
-    return build_coupons(target)
+    result = build_coupons(target)
+    coupon_history.freeze_if_today(result)  # günün kuponu ilk üretildiği haliyle kaydedilir
+    return result
 
 
 @app.post("/api/update")

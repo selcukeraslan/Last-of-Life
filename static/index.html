@@ -14,6 +14,7 @@
   <title>İddia Oran Öneri</title>
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/legal.css">
+  <link rel="stylesheet" href="/static/coupon-history.css">
 </head>
 <body>
   <header class="topbar">
@@ -22,6 +23,7 @@
       <button data-tab="matches" class="active">Maçlar</button>
       <button data-tab="picks">Öneriler</button>
       <button data-tab="coupons">Günlük Kupon</button>
+      <button data-tab="coupon-history">Kupon Geçmişi</button>
       <button data-tab="table">Puan Durumu</button>
       <button data-tab="model">Model</button>
     </nav>
@@ -51,6 +53,10 @@
     <section id="tab-coupons" class="tab hidden">
       <div class="toolbar coupon-toolbar"><button id="couponPrev" class="btn">‹ Önceki gün</button><label>Gün: <input id="couponDate" type="date"></label><button id="couponNext" class="btn">Sonraki gün ›</button></div>
       <div id="coupons"></div>
+    </section>
+
+    <section id="tab-coupon-history" class="tab hidden">
+      <div id="couponHistory"></div>
     </section>
 
     <section id="tab-table" class="tab hidden">
@@ -89,5 +95,6 @@
   <script src="/static/odds-history.js"></script>
   <script src="/static/app.js"></script>
   <script src="/static/pwa.js"></script>
+  <script src="/static/coupon-history.js"></script>
 </body>
 </html>
