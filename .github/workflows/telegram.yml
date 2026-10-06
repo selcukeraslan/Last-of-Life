@@ -37,4 +37,13 @@ jobs:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-        run: python -m app.telegram_bot ${{ github.event_name == 'workflow_dispatch' && inputs.test_day && format('--test --day {0}', inputs.test_day) || (github.event_name == 'workflow_dispatch' && inputs.force && '--force' || '') }}
+          TEST_DAY: ${{ inputs.test_day }}
+          FORCE_SEND: ${{ inputs.force }}
+        run: |
+          if [[ -n "$TEST_DAY" ]]; then
+            python -m app.telegram_bot --test --day "$TEST_DAY"
+          elif [[ "$FORCE_SEND" == "true" ]]; then
+            python -m app.telegram_bot --force
+          else
+            python -m app.telegram_bot
+          fi

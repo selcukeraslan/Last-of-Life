@@ -172,12 +172,40 @@ class ResultsTest(DbTestCase):
         self.assertIn("2-0", text)
 
 
+class TestModeTest(DbTestCase):
+    def test_test_day_sends_test_header_without_idempotency_record(self):
+        calls = []
+        with patch.dict(tg.os.environ, {"TELEGRAM_BOT_TOKEN": "TOK", "TELEGRAM_CHAT_ID": "@kanal"}), \
+                patch.object(tg, "build_coupons", return_value={
+                    "date": "2026-10-17", "banko": coupon("banko", [pick(1, "1")]),
+                    "surprise": coupon("surprise", []),
+                }), \
+                patch.object(tg, "send_message", side_effect=lambda token, chat, text, reply_to=None: calls.append(
+                    (token, chat, text, reply_to))):
+            self.assertEqual(tg.main(["--test", "--day", "2026-10-17"]), 0)
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(calls[0][:2], ("TOK", "@kanal"))
+        self.assertIn("🧪 <b>TEST</b>", calls[0][2])
+        self.assertIsNone(calls[0][3])
+        with db.session() as conn:
+            self.assertEqual(conn.execute("SELECT COUNT(*) n FROM telegram_posts").fetchone()["n"], 0)
+
+
 class MainTest(unittest.TestCase):
     def test_missing_secrets_skip_silently(self):
         with patch.dict(tg.os.environ, {"TELEGRAM_BOT_TOKEN": "", "TELEGRAM_CHAT_ID": ""}), \
                 patch.object(tg, "init_db", side_effect=AssertionError("DB'ye dokunulmamalı")), \
                 patch.object(tg, "send_message", side_effect=AssertionError("gönderilmemeli")):
             self.assertEqual(tg.main([]), 0)
+
+
+class TelegramWorkflowTest(unittest.TestCase):
+    def test_dispatch_values_are_passed_through_env_not_interpolated_into_shell(self):
+        workflow = (Path(__file__).resolve().parent.parent / ".github" / "workflows" / "telegram.yml").read_text(encoding="utf-8")
+        self.assertIn("TEST_DAY: ${{ inputs.test_day }}", workflow)
+        self.assertIn('"$TEST_DAY"', workflow)
+        self.assertIn('"$FORCE_SEND"', workflow)
+        self.assertNotIn("format('--test --day {0}', inputs.test_day)", workflow)
 
 
 if __name__ == "__main__":

@@ -195,12 +195,14 @@ class UpdaterIntegrationTest(DbCase):
         self.freeze(day_coupons("2026-10-06", banko=[pick(1), pick(2)]))
         self.add_match(1, 0, 3)
         with patch.object(updater.espn, "sync_league", return_value=1), \
+                patch.object(updater.tff, "sync_league", return_value=1), \
                 patch.object(updater.iddaa, "sync_odds", return_value={}), \
                 patch.object(ch, "freeze_today", return_value=["banko"]) as freeze:
             self.assertEqual(updater.run_update(with_news=False), "ok")
         freeze.assert_called_once()
         self.assertEqual(self.history()["days"][0]["banko"]["status"], "lost")
         with patch.object(updater.espn, "sync_league", return_value=1), \
+                patch.object(updater.tff, "sync_league", return_value=1), \
                 patch.object(updater.iddaa, "sync_odds", return_value={}), \
                 patch.object(ch, "freeze_today", side_effect=RuntimeError("boom")):
             self.assertEqual(updater.run_update(with_news=False), "ok")  # kupon hatası güncellemeyi bozmaz
