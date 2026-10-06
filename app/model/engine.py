@@ -13,9 +13,11 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
+from .. import odds_log
 from ..config import LEAGUES, MODEL, NEWS_LOOKBACK_DAYS
 from ..db import get_meta, session, set_meta
 from . import predict as P
+from .blend import BlendEval
 from .ratings import (Elo, Strengths, form_score, last_match_before, parse_ts, season_start,
                       standings, team_form)
 
@@ -145,11 +147,10 @@ class LeagueModel:
         n_a = st.n_weighted.get(away, 0)
         data_q = min(1.0, min(n_h, n_a) / 15)
         pmax = max(mk["markets"]["1"]["p"], mk["markets"]["X"]["p"], mk["markets"]["2"]["p"])
-        conf = 0.6 * data_q + 0.4 * min(1.0, (pmax - 0.33) / 0.4)
         out.update({
             "pick": P.best_pick(mk["markets"]),
-            "confidence": round(conf, 2),
-            "confidence_label": "Yüksek" if conf >= 0.7 else "Orta" if conf >= 0.45 else "Düşük",
+            **P.confidence(data_q, pmax),
+            "data_quality": round(data_q, 4),  # iddaa oranlarıyla harmanlarken güven yeniden hesaplanır
             "factors": {
                 "poisson": {"home": round(lh_p, 3), "away": round(la_p, 3),
                             "league_home_avg": round(st.mu_h, 2), "league_away_avg": round(st.mu_a, 2),
@@ -215,11 +216,19 @@ def get_model(league: str) -> LeagueModel:
 # --- Geriye dönük test --------------------------------------------------------
 def backtest(league: str, min_history: int = 120, step: int = 1) -> dict:
     """Her maçı, sadece o maçtan önceki verilerle tahmin edip gerçek sonuçla karşılaştırır.
-    (Geçmiş haber verisi olmadığından haber etkisi bu testte yoktur.)"""
+    (Geçmiş haber verisi olmadığından haber etkisi bu testte yoktur.)
+    Ana metrikler yalnız modeldir (harmansız). Kaydedilmiş iddaa oranı olan maçlar (odds_log) ayrıca
+    `blend` altında model / harmanlı / yalnız piyasa olarak karşılaştırılır; kayıt yoksa `blend` boştur."""
     with session() as conn:
         done, _ = _load(conn, league)
+        try:
+            logged = odds_log.load_for_league(conn, league)
+        except Exception:  # odds_log tablosu henüz yok (migration uygulanmadı)
+            conn.rollback()
+            logged = {}
     if len(done) <= min_history:
         return {"league": league, "n": 0}
+    blend_eval = BlendEval()
     base = LeagueModel(league, [], [], {})
     elo = Elo()
     for m in done[:min_history]:
@@ -241,10 +250,13 @@ def backtest(league: str, min_history: int = 120, step: int = 1) -> dict:
         brier += sum((probs[i] - (1 if i == actual else 0)) ** 2 for i in range(3))
         logloss += -math.log(max(1e-9, probs[actual]))
         ou_hit += int((p["Ü2.5"]["p"] >= 0.5) == (hg + ag >= 3))
+        if m["id"] in logged:
+            blend_eval.add(p, logged[m["id"]], hg, ag)
         for k in range(idx, min(idx + step, len(done))):
             elo.update(done[k])
     return {"league": league, "n": n, "accuracy_1x2": round(hit / n, 3), "brier": round(brier / n, 3),
-            "logloss": round(logloss / n, 3), "accuracy_ou25": round(ou_hit / n, 3)}
+            "logloss": round(logloss / n, 3), "accuracy_ou25": round(ou_hit / n, 3),
+            "blend": blend_eval.result()}
 
 
 def run_backtests() -> dict:

@@ -8,13 +8,13 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import odds_history, pwa, updater
+from . import odds_history, odds_log, pwa, updater
 from .api_odds_history import router as odds_history_router
 from .config import LEAGUES, MODEL, STATIC_DIR
 from .db import get_meta, init_db, is_postgres, session
 from .coupon_history_api import router as coupon_history_router
 from .model import coupon_history, engine
-from .scrapers import iddaa
+from .model.blend import blend_predictions
 from .model.coupons import TZ, build_coupons
 from .model.ratings import parse_ts
 from .value_bets import router as value_bets_router
@@ -46,19 +46,16 @@ def _check_league(league: str):
 
 
 def _attach_iddaa_odds(items: list[dict]) -> list[dict]:
-    """Tahmin yanıtlarına aynı ESPN maçıyla eşleşen güncel iddaa oranlarını ekler."""
+    """Tahmin yanıtlarına aynı ESPN maçıyla eşleşen güncel iddaa oranlarını ekler ve (`markets` içeren
+    tahminlerde) olasılıkları marjı temizlenmiş iddaa olasılıklarıyla harmanlar (model/blend.py)."""
     if not items:
         return items
     with session() as conn:
-        by_match = iddaa.odds_for_matches(conn, [item["id"] for item in items])
+        blended = blend_predictions(conn, items)
         movements = odds_history.movements_for_matches(conn, [item["id"] for item in items])
-    for item in items:
-        source = by_match.get(str(item["id"]))
-        item["iddaa_odds"] = source["odds"] if source else {}
-        item["iddaa_event_id"] = source["event_id"] if source else None
-        item["iddaa_updated_at"] = source["updated_at"] if source else None
+    for item in blended:
         item["iddaa_movement"] = movements.get(str(item["id"]), {})
-    return items
+    return blended
 
 
 @app.get("/api/leagues")
@@ -107,17 +104,19 @@ def standings(league: str):
 @app.get("/api/picks")
 def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0):
     """Tüm liglerden en güvenilir önerileri döndürür."""
+    predictions = [p for lg in LEAGUES for p in engine.get_model(lg).upcoming_predictions(days)]
     out = []
-    for lg in LEAGUES:
-        for p in engine.get_model(lg).upcoming_predictions(days):
-            if p.get("pick") and p["confidence"] >= min_conf:
-                out.append({"id": p["id"], "league": lg, "league_name": LEAGUES[lg]["name"],
-                            "kickoff": p["kickoff"], "home": p["home"], "away": p["away"],
-                            "pick": p["pick"], "confidence": p["confidence"],
-                            "confidence_label": p["confidence_label"],
-                            "score": p["pick"]["p"] * (0.5 + p["confidence"])})
+    for p in _attach_iddaa_odds(predictions):  # öneri/güven harmanlı olasılıktan hesaplanır
+        if p.get("pick") and p["confidence"] >= min_conf:
+            out.append({"id": p["id"], "league": p["league"], "league_name": LEAGUES[p["league"]]["name"],
+                        "kickoff": p["kickoff"], "home": p["home"], "away": p["away"],
+                        "pick": p["pick"], "confidence": p["confidence"],
+                        "confidence_label": p["confidence_label"], "blend": p["blend"],
+                        "iddaa_odds": p["iddaa_odds"], "iddaa_event_id": p["iddaa_event_id"],
+                        "iddaa_updated_at": p["iddaa_updated_at"], "iddaa_movement": p["iddaa_movement"],
+                        "score": p["pick"]["p"] * (0.5 + p["confidence"])})
     out.sort(key=lambda x: -x["score"])
-    return _attach_iddaa_odds(out)
+    return out
 
 
 @app.get("/api/coupons")
@@ -149,7 +148,8 @@ _bt_state = {"running": False}
 
 @app.get("/api/backtest")
 def get_backtest():
-    return {"running": _bt_state["running"], "data": engine.cached_backtest()}
+    return {"running": _bt_state["running"], "data": engine.cached_backtest(),
+            "odds_log": odds_log.current_summary()}
 
 
 @app.post("/api/backtest")

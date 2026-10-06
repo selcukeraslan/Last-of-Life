@@ -82,6 +82,7 @@
           <li><b>Form:</b> Son 5 maçın ağırlıklı puan ortalaması.</li>
           <li><b>Haberler:</b> Son 7 günün Google Haberler başlıkları taranır; olumlu/olumsuz kelimeler ve sakatlık / ceza haberleri skora dönüşür.</li>
           <li><b>Dinlenme:</b> 4 günden az dinlenen takıma küçük bir ceza.</li>
+          <li><b>iddaa harmanı:</b> iddaa.com oranından marj temizlenir (1X2, Alt/Üst, KG) ve model olasılığıyla <code>market_weight</code> ağırlığında harmanlanır; oran yoksa model aynen kalır. Öneriler ve kuponlar harmanlı olasılığı kullanır.</li>
           <li>Ortaya çıkan beklenen gollerden <b>Dixon-Coles</b> düzeltmeli skor dağılımı hesaplanır; 1X2, Alt/Üst, KG ve skor olasılıkları buradan gelir.</li>
           <li><b>Adil oran</b> = 1 / olasılık. <b>Claude oran</b> = adil orana %<span id="marginPct"></span> marj eklenmiş hali. iddaa.com oranı Claude oranından yüksekse "değerli" sayılır.</li>
         </ol>
@@ -90,6 +91,7 @@
         <div class="row-between"><h3>Geriye dönük test</h3><button id="btnBacktest" class="btn">Testi çalıştır</button></div>
         <p class="muted">Her maç, sadece o tarihten önceki verilerle tahmin edilip gerçek sonuçla karşılaştırılır (haber etkisi hariç). Brier skoru ne kadar düşükse o kadar iyi; rastgele tahmin ≈ 0.667.</p>
         <div id="backtest"></div>
+        <div id="blendBacktest"></div>
       </div>
       <div class="card"><h3>Parametreler</h3><div id="params"></div>
         <p class="muted">Değiştirmek için <code>app/config.py</code> içindeki <code>MODEL</code> sözlüğünü düzenleyip sunucuyu yeniden başlatın.</p></div>
@@ -103,6 +105,7 @@
   <footer class="muted legal-footer">18+ · Tahminler garanti değildir, yatırım tavsiyesi değildir. Sorumlu oynayın.</footer>
   <script src="/static/legal.js"></script>
   <script src="/static/odds-history.js"></script>
+  <script src="/static/blend.js"></script>
   <script src="/static/app.js"></script>
   <script src="/static/pwa.js"></script>
   <script src="/static/coupon-history.js"></script>
