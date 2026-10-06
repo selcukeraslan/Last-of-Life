@@ -99,6 +99,19 @@ Kurulum (bir kez):
 Workflow (`.github/workflows/telegram.yml`) her saatin 20. dakikasında çalışır; zamanlanmış workflow'lar
 yalnızca varsayılan dalda (main) tetiklenir. Yerelde: `python -m app.telegram_bot --dry-run` mesajı göndermeden
 ekrana yazar; `--force` sabah penceresini, `--day YYYY-MM-DD` günü değiştirir.
+## PWA (ana ekrana ekle)
+
+Site yüklenebilir bir PWA'dır (Android/Chrome "Uygulamayı yükle", iOS Safari "Ana Ekrana Ekle").
+
+- `app/pwa.py`: `/manifest.webmanifest` (`application/manifest+json`) ve `/sw.js` (kökten, kapsam `/`; `no-cache`).
+  Vercel'de tüm yollar FastAPI'ye gittiği için başlıklar burada ayarlanır.
+- `app/sw.js` (service worker şablonu): `/` + `static/` önbelleğe alınır (cache-first); önbellek adı `static/`
+  içeriğinin özetinden türetilir, yani statik dosya değişince otomatik yeni sürüm kurulur ve "Yeni sürüm hazır" bandı çıkar.
+  `/api` GET istekleri network-first: ağ yok/yavaş (8 sn)/5xx ise son kaydedilen yanıt gösterilir ve "kayıtlı veri
+  gösteriliyor" bandı çıkar (`/api/update*` hiç önbelleğe alınmaz). ESPN takım logoları cache-first.
+- `static/pwa.js`: kayıt + çevrimdışı/güncelleme bandı. `static/icons/`: 192/512 + maskable + apple-touch-icon;
+  `python scripts/make_pwa_icons.py` ile yeniden üretilir (saf Python).
+- Yerelde de çalışır (`localhost` güvenli bağlam sayılır). Sorun olursa tarayıcıda DevTools → Application → Service Workers.
 
 ## Dosyalar
 
