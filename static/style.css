@@ -136,3 +136,23 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
   .badge { padding: 2px 6px; font-size: 11px; }
   .mhead img { width: 36px; height: 36px; }
 }
+
+/* Oran hareketi (static/odds-history.js) */
+.odd-move { display: block; font-size: 11px; font-weight: 600; white-space: nowrap; font-variant-numeric: tabular-nums; }
+.odd-move.down { color: var(--warn); }
+.odd-move.up { color: var(--accent2); }
+.pick .odd-move { margin-top: 2px; }
+.drops { margin-bottom: 12px; }
+.drops h3 { margin: 0; }
+.drop-row { display: flex; justify-content: space-between; align-items: center; gap: 8px 16px; flex-wrap: wrap; padding: 6px 0; border-top: 1px solid var(--line); }
+.drop-row.clickable { cursor: pointer; }
+.drop-row.clickable:hover .drop-teams b { color: var(--accent2); }
+.drop-markets { display: flex; gap: 12px; flex-wrap: wrap; }
+.drop-markets .odd-move { display: inline-block; }
+.drop-pct { opacity: .8; }
+.oh-table td.oh-line { font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+.oh-table .odd-move { display: inline-block; }
+@media (max-width: 720px) {
+  .odd-move { white-space: normal; font-size: 10px; }
+  .drop-row { flex-direction: column; align-items: flex-start; }
+}
