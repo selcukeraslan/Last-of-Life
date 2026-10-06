@@ -101,6 +101,14 @@ EV = olasılık × oran − 1 > 0 olan seçimleri EV'ye göre sıralar (pazar, s
 EV %, maç/lig/saat). Min. olasılık ve min. EV filtreleri vardır; iddaa oranı olmayan pazar/maç listeye girmez,
 liste boşsa nedeni mesajla açıklanır. API: `/api/value-bets?days=7&min_prob=0.3&min_ev=0.05` (oran ve EV 0-1 aralığında).
 
+**Kuponum** sekmesi kendi kuponunuzu kurar: maç kartlarındaki **＋ Kupona ekle** düğmesi modelin önerisini ekler;
+maç detayındaki her pazar (1X2, çifte şans, Alt/Üst 1.5-2.5-3.5, KG) için ayrı düğme vardır. Kuponda toplam oran
+(iddaa oranı varsa o, yoksa Claude oran), model tutma ihtimali (seçim olasılıklarının çarpımı), EV ve
+yatırılan tutardan olası kazanç gösterilir; aynı maçtan birden fazla seçim ya da birlikte tutamayacak seçimler
+(örn. 1 ve X) uyarılır. Kupon sunucuya gitmez, tarayıcının `localStorage`'ında (`iddiaoran.slip.v1`) durur; sekme
+açılınca oranlar `/api/match/{id}` ile yenilenir. Hesaplar `static/slip-calc.js` (saf JS, `node --test tests/js/`;
+`unittest discover` de node varsa bunu çalıştırır), arayüz `static/slip.js` + `static/slip.css`.
+
 **Model** sekmesindeki geriye dönük test her maçı sadece öncesindeki verilerle tahmin edip doğruluğu ölçer.
 Parametreler `app/config.py` içindeki `MODEL` sözlüğündedir.
 

@@ -15,6 +15,7 @@
   <link rel="stylesheet" href="/static/style.css">
   <link rel="stylesheet" href="/static/legal.css">
   <link rel="stylesheet" href="/static/coupon-history.css">
+  <link rel="stylesheet" href="/static/slip.css">
 </head>
 <body>
   <header class="topbar">
@@ -25,6 +26,7 @@
       <button data-tab="coupons">Günlük Kupon</button>
       <button data-tab="coupon-history">Kupon Geçmişi</button>
       <button data-tab="value">Değerli Oranlar</button>
+      <button data-tab="slip">Kuponum <span id="slipCount" class="badge-count hidden">0</span></button>
       <button data-tab="table">Puan Durumu</button>
       <button data-tab="model">Model</button>
     </nav>
@@ -69,6 +71,10 @@
       <div id="valueBets"></div>
     </section>
 
+    <section id="tab-slip" class="tab hidden">
+      <div id="slip"></div>
+    </section>
+
     <section id="tab-table" class="tab hidden">
       <div id="table"></div>
     </section>
@@ -106,6 +112,8 @@
   <script src="/static/legal.js"></script>
   <script src="/static/odds-history.js"></script>
   <script src="/static/blend.js"></script>
+  <script src="/static/slip-calc.js"></script>
+  <script src="/static/slip.js"></script>
   <script src="/static/app.js"></script>
   <script src="/static/pwa.js"></script>
   <script src="/static/coupon-history.js"></script>
