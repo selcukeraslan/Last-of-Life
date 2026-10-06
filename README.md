@@ -143,7 +143,7 @@ Kurulum (bir kez):
    `https://api.telegram.org/bot<TOKEN>/getUpdates` yanıtındaki `chat.id` değerini (`-100…`) alın.
 5. GitHub → repo → Settings → Secrets and variables → Actions: `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`
    ekleyin (`DATABASE_URL` zaten var).
-6. Supabase'e `supabase/migrations/20261006000000_telegram_posts.sql` migration'ını uygulayın
+6. Supabase'e `supabase/migrations/20261006000001_telegram_posts.sql` migration'ını uygulayın
    (yerel SQLite'ta tablo otomatik oluşur).
 7. İlk deneme: Actions → "Telegram kupon" → *Run workflow* (`force` işaretli).
 
