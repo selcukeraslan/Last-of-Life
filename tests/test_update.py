@@ -69,6 +69,7 @@ class UpdaterTests(unittest.TestCase):
 
     def test_quick_update_sets_shared_timestamp_then_cools_down(self):
         with patch.object(updater.espn, "sync_recent", return_value=(5, True)) as espn_sync, \
+                patch.object(updater.tff, "sync_recent", return_value=(5, True)) as tff_sync, \
                 patch.object(updater.iddaa, "sync_odds", return_value={}) as odds_sync:
             first = updater.run_quick_update()
             second = updater.run_quick_update()
@@ -77,7 +78,9 @@ class UpdaterTests(unittest.TestCase):
         self.assertFalse(first["running"])
         self.assertEqual(second["status"], "cooldown")
         self.assertEqual(second["last_updated_at"], first["last_updated_at"])
-        self.assertEqual(espn_sync.call_count, len(updater.LEAGUES))
+        tff_leagues = [lg for lg, v in updater.LEAGUES.items() if v.get("source") == "tff"]
+        self.assertEqual(tff_sync.call_count, len(tff_leagues))
+        self.assertEqual(espn_sync.call_count, len(updater.LEAGUES) - len(tff_leagues))
         self.assertEqual(odds_sync.call_count, 1)  # ikinci çağrı kaynaklara gitmedi
         self.assertEqual(updater.status()["last_updated_at"], first["last_updated_at"])
 
@@ -91,6 +94,7 @@ class UpdaterTests(unittest.TestCase):
 
     def test_quick_update_error_does_not_stamp_or_keep_lock(self):
         with patch.object(updater.espn, "sync_recent", return_value=(0, False)), \
+                patch.object(updater.tff, "sync_recent", return_value=(0, False)), \
                 patch.object(updater.iddaa, "sync_odds", side_effect=RuntimeError("down")):
             result = updater.run_quick_update()
         self.assertEqual(result["status"], "error")
@@ -121,10 +125,41 @@ class UpdaterTests(unittest.TestCase):
         self.assertEqual(updater.run_update(with_news=False), "skipped")
         self.set("update_lock", "")
         with patch.object(updater.espn, "sync_league", return_value=3), \
+                patch.object(updater.tff, "sync_league", return_value=3), \
                 patch.object(updater.iddaa, "sync_odds", return_value={}):
             self.assertEqual(updater.run_update(with_news=False), "ok")
         self.assertIsNotNone(self.meta("last_updated_at"))
         self.assertEqual(self.meta("update_lock"), "")
+
+    def test_quick_update_stays_within_serverless_budget(self):
+        """Web isteği yalnız hızlı güncellemeyi çalıştırır; en kötü durum süresi 300 sn'nin altında kalır."""
+        full_called = []
+        with patch.object(updater.espn, "sync_league", side_effect=lambda *a, **k: full_called.append(a)), \
+                patch.object(updater.tff, "sync_league", side_effect=lambda *a, **k: full_called.append(a)), \
+                patch.object(updater.espn, "sync_recent", return_value=(1, True)), \
+                patch.object(updater.tff, "sync_recent", return_value=(1, True)), \
+                patch.object(updater.iddaa, "sync_odds", return_value={}):
+            updater.run_quick_update()
+        self.assertEqual(full_called, [])  # ağır tam çekim hiçbir zaman istek içinde çalışmaz
+        worst_iddaa = 2 * 25 + 1.5  # iki deneme x zaman aşımı + bekleme (iddaa.fetch_json)
+        self.assertLess(updater.QUICK_LEAGUES_DEADLINE_SEC + worst_iddaa + 30, 300)
+
+    def test_quick_update_skips_slow_league_after_deadline(self):
+        import time
+        calls = []
+
+        def slow(conn, league, **kw):
+            calls.append(league)
+            if league == "tur.1":
+                time.sleep(0.6)
+            return (1, True)
+
+        with patch.object(updater, "QUICK_LEAGUES_DEADLINE_SEC", 0.2), \
+                patch.object(updater.espn, "sync_recent", side_effect=slow), \
+                patch.object(updater.tff, "sync_recent", return_value=(1, True)), \
+                patch.object(updater.iddaa, "sync_odds", return_value={}):
+            result = updater.run_quick_update()
+        self.assertEqual(result["status"], "updated")  # yavaş lig tüm güncellemeyi bloklamadı
 
 
 if __name__ == "__main__":

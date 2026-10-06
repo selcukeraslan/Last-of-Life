@@ -29,9 +29,18 @@ COMPETITION_IDS = {
     143: "ita.1",   # İtalya Serie A
     45: "ger.1",    # Almanya Bundesliga
     381: "fra.1",   # Fransa Ligue 1
+    1980: "tur.2",  # Türkiye 1. Lig (TFF)
+    322: "ned.1",   # Hollanda Eredivisie
+    566: "por.1",   # Portekiz Premier Lig (Liga Portugal)
+    # UEFA kupaları: katalogda her biri için iki kayıt var (eski kalıcı kimlik + güncel kimlik); hangisinin maç
+    # bülteninde kullanıldığı UEFA maç günü olmadan gözlenemediği için ikisi de eşlenir. Maç olmayan
+    # (turnuva/şampiyon bahisleri) kayıtların takım adı olmadığı için parse_event bunları eler.
+    126: "uefa.champions", 46194: "uefa.champions",   # UEFA Şampiyonlar Ligi
+    46195: "uefa.europa", 588: "uefa.europa",         # UEFA Avrupa Ligi (588: eleme turları)
 }
 
-_CHAR_MAP = str.maketrans({"ı": "i", "İ": "i", "ş": "s", "Ş": "s", "ğ": "g", "Ğ": "g"})
+_CHAR_MAP = str.maketrans({"ı": "i", "İ": "i", "ş": "s", "Ş": "s", "ğ": "g", "Ğ": "g",
+                           "ø": "o", "Ø": "o", "ł": "l", "Ł": "l", "đ": "d", "Đ": "d", "æ": "ae"})
 _NON_WORD = re.compile(r"[^a-z0-9]+")
 
 # Kaynaklar arasında düzenli görülen kısa/ad değişiklikleri. Değerler yalnızca
@@ -68,6 +77,74 @@ _ALIAS_GROUPS = {
     "galatasaray": ["galatasaray sk"],
     "besiktas": ["besiktas jk"],
     "trabzonspor": ["trabzonspor sk"],
+    # Hollanda Eredivisie
+    "ajax": ["ajax amsterdam"],
+    "feyenoord": ["feyenoord rotterdam"],
+    "psv": ["psv eindhoven"],
+    "zwolle": ["pec zwolle"],
+    "twente": ["fc twente", "twente enschede"],
+    "utrecht": ["fc utrecht"],
+    "groningen": ["fc groningen"],
+    "heracles": ["heracles almelo"],
+    "cambuur": ["sc cambuur"],
+    "den haag": ["ado den haag"],
+    "volendam": ["fc volendam"],
+    "nac breda": ["nac"],
+    "go ahead eagles": ["ga eagles"],
+    # Portekiz Liga
+    "braga": ["sporting braga", "sporting de braga", "sc braga"],
+    "nacional": ["c d nacional", "cd nacional", "nacional da madeira"],
+    "estoril": ["estoril praia", "gd estoril praia"],
+    "sporting cp": ["sporting lizbon", "sporting lisbon"],
+    "vitoria guimaraes": ["vitoria de guimaraes", "vitoria sc", "guimaraes"],
+    "estrela": ["cf estrela", "estrela amadora", "cf estrela da amadora"],
+    "famalicao": ["fc famalicao"],
+    "arouca": ["fc arouca"],
+    "alverca": ["fc alverca"],
+    "moreirense": ["moreirense fc"],
+    "tondela": ["cd tondela"],
+    "santa clara": ["cd santa clara"],
+    # Avrupa kupaları (ligleri kapsama dışı takımlar dahil)
+    "salzburg": ["rb salzburg", "red bull salzburg", "fc red bull salzburg"],
+    "slavia prague": ["slavia prag"],
+    "sparta prague": ["sparta prag"],
+    "viktoria plzen": ["plzen", "fc viktoria plzen"],
+    "union saint gilloise": ["union st gilloise", "union sg", "royale union saint gilloise"],
+    "borussia dortmund": ["b dortmund", "dortmund", "bor dortmund"],
+    "bayer leverkusen": ["leverkusen", "bayer 04 leverkusen"],
+    "eintracht frankfurt": ["frankfurt", "ein frankfurt"],
+    "vfb stuttgart": ["stuttgart"],
+    "sc freiburg": ["freiburg"],
+    "hoffenheim": ["tsg hoffenheim", "1899 hoffenheim"],
+    "real betis": ["betis"],
+    "stade rennais": ["rennes"],
+    "lille": ["lille osc", "losc lille"],
+    "lens": ["rc lens"],
+    "nice": ["ogc nice"],
+    "red star belgrade": ["crvena zvezda", "red star", "kizil yildiz"],
+    "shakhtar donetsk": ["shakhtar", "sahtar donetsk"],
+    "dinamo zagreb": ["gnk dinamo zagreb"],
+    "ludogorets": ["ludogorets razgrad"],
+    "levski sofia": ["levski"],
+    "jagiellonia": ["jagiellonia bialystok"],
+    "lech poznan": ["lech"],
+    "kairat": ["kairat almaty"],
+    "copenhagen": ["f c kobenhavn", "fc kobenhavn", "kobenhavn", "kopenhag"],
+    "omonia": ["omonia nicosia", "omonoia"],
+    "paok": ["paok salonika", "paok selanik"],
+    "aek athens": ["aek atina"],
+    "olympiacos": ["olympiakos", "olimpiyakos"],
+    "rangers": ["glasgow rangers"],
+    "young boys": ["bsc young boys"],
+    "basel": ["fc basel 1893"],
+    "lask": ["lask linz"],
+    "sturm graz": ["sk sturm graz"],
+    "ferencvaros": ["ferencvarosi tc", "ferencvaros tc"],
+    "celje": ["nk celje"],
+    "ofi crete": ["ofi", "ofi girit"],
+    "maccabi tel aviv": ["maccabi tel-aviv"],
+    "hapoel beer sheva": ["hapoel be er sheva", "hapoel beer-sheva"],
+    "malmo": ["malmo ff"],
 }
 
 
@@ -157,8 +234,8 @@ def _market_odds(markets: list[dict]) -> dict[str, float]:
 
 def parse_event(raw: dict) -> dict | None:
     league = COMPETITION_IDS.get(raw.get("ci"))
-    if not league or not raw.get("d"):
-        return None
+    if not league or not raw.get("d") or not raw.get("hn") or not raw.get("an"):
+        return None  # takım adı olmayan kayıtlar maç değil (turnuva/şampiyon bahsi)
     return {
         "id": str(raw["i"]),
         "league": league,

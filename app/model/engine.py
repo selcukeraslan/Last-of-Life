@@ -14,7 +14,7 @@ import time
 from datetime import datetime, timedelta, timezone
 
 from .. import odds_log
-from ..config import LEAGUES, MODEL, NEWS_LOOKBACK_DAYS
+from ..config import LEAGUES, MODEL, NEWS_LOOKBACK_DAYS, is_cup
 from ..db import get_meta, session, set_meta
 from . import predict as P
 from .blend import BlendEval
@@ -81,6 +81,8 @@ def news_scores(conn, league: str, at: datetime) -> dict:
 
 
 class LeagueModel:
+    elo_weight = None  # None: MODEL["elo_weight"]; alt sınıflar (Avrupa kupaları) üzerine yazabilir
+
     def __init__(self, league: str, done: list[dict], upcoming: list[dict], news: dict):
         self.league = league
         self.done = done
@@ -111,7 +113,7 @@ class LeagueModel:
         sup = MODEL["elo_goals_per_point"] * diff  # Elo farkını gol üstünlüğüne çevirir
         lh_e = max(0.15, (total + sup) / 2)
         la_e = max(0.15, (total - sup) / 2)
-        w = MODEL["elo_weight"]
+        w = MODEL["elo_weight"] if self.elo_weight is None else self.elo_weight
         log_h = (1 - w) * math.log(lh_p) + w * math.log(lh_e)
         log_a = (1 - w) * math.log(la_p) + w * math.log(la_e)
 
@@ -189,7 +191,8 @@ class LeagueModel:
 
 
 def _logo(team_id):
-    return f"https://a.espncdn.com/i/teamlogos/soccer/500/{team_id}.png" if team_id else None
+    # ESPN kimlikleri sayıdır; TFF gibi başka kaynakların kimliklerinin ESPN logosu yoktur
+    return f"https://a.espncdn.com/i/teamlogos/soccer/500/{team_id}.png" if team_id and str(team_id).isdigit() else None
 
 
 def _news_view(n: dict) -> dict:
@@ -204,10 +207,14 @@ def get_model(league: str) -> LeagueModel:
     with _lock:
         if league in _cache:
             return _cache[league]
-    with session() as conn:
-        done, upcoming = _load(conn, league)
-        news = news_scores(conn, league, datetime.now(timezone.utc))
-    model = LeagueModel(league, done, upcoming, news)
+    if is_cup(league):
+        from . import european  # ligler arası güç modeli (yerel lig modellerine bağlıdır)
+        model = european.build_cup_model(league)
+    else:
+        with session() as conn:
+            done, upcoming = _load(conn, league)
+            news = news_scores(conn, league, datetime.now(timezone.utc))
+        model = LeagueModel(league, done, upcoming, news)
     with _lock:
         _cache[league] = model
     return model
@@ -260,7 +267,8 @@ def backtest(league: str, min_history: int = 120, step: int = 1) -> dict:
 
 
 def run_backtests() -> dict:
-    res = {lg: backtest(lg) for lg in LEAGUES}
+    # Kupalar için geriye dönük test yok: ligler arası güç, o gün bilinen veriyle yeniden kurulamıyor
+    res = {lg: backtest(lg) for lg in LEAGUES if not is_cup(lg)}
     with session() as conn:
         import json
         set_meta(conn, "backtest", json.dumps(res))

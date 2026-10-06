@@ -13,7 +13,7 @@ cd ~/Desktop/IddiaOran
 Sonra tarayıcıda: http://127.0.0.1:8000
 
 `DATABASE_URL` tanımlı değilse yerel SQLite (`data/iddia.db`) kullanılır; bu modda ilk açılışta veri yoksa
-(veya son güncelleme 6 saatten eskiyse) arka planda tam güncelleme başlar. İlk tam çekim 6 lig için birkaç
+(veya son güncelleme 6 saatten eskiyse) arka planda tam güncelleme başlar. İlk tam çekim 11 lig için birkaç
 dakika sürer, sonrakiler sadece son günleri çeker.
 
 Komut satırından (ağır) tam güncelleme:
@@ -49,7 +49,22 @@ Herkese açık (Vercel) kurulumda veri ortak Supabase Postgres'tedir; biri günc
 | Puan durumu, form, ev/deplasman performansı, H2H, dinlenme süresi | Yukarıdaki sonuçlardan hesaplanır |
 | Haberler, sakatlık/ceza sinyali | Google Haberler RSS (takım başına, son 7 gün) |
 
-Ligler: Süper Lig, Premier League, La Liga, Serie A, Bundesliga, Ligue 1 (`app/config.py` → `LEAGUES`).
+Ligler: Süper Lig, Premier League, La Liga, Serie A, Bundesliga, Ligue 1, TFF 1. Lig, Eredivisie, Liga Portugal,
+UEFA Şampiyonlar Ligi, UEFA Avrupa Ligi (`app/config.py` → `LEAGUES`).
+
+### TFF 1. Lig ve Avrupa kupaları
+
+- **TFF 1. Lig (`tur.2`)**: ESPN bu lig için sluğu listeliyor ama hiç maç/takım döndürmüyor. Veri resmi TFF
+  sitesinden (`app/scrapers/tff.py`, `hafta=N` sayfaları; TSİ → UTC) okunur. Önceki sezon çekilmediği için
+  sezon başında veri azdır (güven puanı bunu düşük gösterir). Kulüp adları `CLUB_NAMES` tablosundadır; yeni
+  sezonda yükselen takımlar genel temizlemeyle adlandırılır, gerekirse tabloya eklenir.
+- **Avrupa kupaları (`uefa.champions`, `uefa.europa`)**: `app/model/european.py`. Ligler arası güç =
+  takımın kendi lig Elo'su + lig ofseti; ofsetler UEFA sırasına dayanan yaklaşık önsellerle başlar ve
+  kupadaki ligler arası maçlardan MAP ile güncellenir; ardından kupa sonuçları takım başına Elo düzeltmesi
+  ekler. Ligi bizde olmayan takımlar (Celtic, Club Brugge…) "diğer" grubunda 1500 civarından başlar.
+  Haberler takımın kendi liginden alınır; kupalar için ayrıca haber çekilmez ve geriye dönük test yapılmaz.
+- Tam geçmiş çekimi yalnız `python -m app.updater` / GitHub Actions cron'unda çalışır; web isteği
+  (`/api/update`) yalnız hızlı güncellemeyi çalıştırır ve lig çekimleri için 120 sn sınırı vardır.
 
 ## iddaa oranlarıyla harmanlama
 
@@ -162,6 +177,8 @@ Yeni tablo için `supabase/migrations/20261006000000_iddaa_odds_history.sql` dep
 ```
 app/config.py          ayarlar, ligler, model parametreleri
 app/scrapers/espn.py   sonuç & fikstür toplayıcı
+app/scrapers/tff.py    TFF 1. Lig toplayıcı (ESPN'de verisi yok)
+app/model/european.py  Avrupa kupaları için ligler arası güç modeli
 app/scrapers/iddaa.py  iddaa.com bülten oranları + ESPN maç eşleştirmesi
 app/odds_history.py    oran geçmişi: snapshot, hareket, düşüş listesi, temizlik (+ api_odds_history.py)
 app/scrapers/news.py   Google Haberler RSS toplayıcı

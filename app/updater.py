@@ -13,20 +13,30 @@ import sys
 import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import wait as wait_futures
 from datetime import datetime, timedelta, timezone
 
 from .config import LEAGUES
 from .db import get_meta, init_db, session, set_meta
 from .model.ratings import parse_ts
-from .scrapers import espn, iddaa, news
+from .scrapers import espn, iddaa, news, tff
 
 COOLDOWN_MINUTES = 10  # herkese açık sitede iki güncelleme arası en az bekleme
 QUICK_LOCK_MINUTES = 3  # hızlı güncelleme kilidi zaman aşımı (çöken istek kilidi kalıcı bırakmasın)
 FULL_LOCK_MINUTES = 45  # tam güncelleme kilidi zaman aşımı
 RECENT_DAYS_BACK = 3  # hızlı güncellemede ESPN'den geriye bakılan gün
 IDDAA_MAX_STALE_HOURS = 6  # iddaa erişilemezse eski oranlar en çok bu kadar süre gösterilir
+# Serverless istek süresi (300 sn) bütçesi: hızlı güncellemede lig çekimleri en çok bu kadar bekler; ardından
+# iddaa (en kötü ~55 sn) çalışır. Yavaş kalan lig atlanır, bir sonraki güncelleme tamamlar.
+QUICK_MAX_WORKERS = 8
+QUICK_LEAGUES_DEADLINE_SEC = 120
 
 _progress_state = {"message": ""}
+
+
+def source_for(league: str):
+    """Ligin veri kaynağı modülü (espn | tff); ikisi de sync_league / sync_recent sunar."""
+    return tff if LEAGUES[league].get("source") == "tff" else espn
 
 
 def _now() -> datetime:
@@ -164,10 +174,13 @@ def run_quick_update() -> dict:
         if not skipped:
             def one(league):
                 with session() as conn:
-                    return espn.sync_recent(conn, league, days_back=RECENT_DAYS_BACK)
+                    return source_for(league).sync_recent(conn, league, days_back=RECENT_DAYS_BACK)
 
-            with ThreadPoolExecutor(max_workers=len(LEAGUES)) as pool:
-                results = list(pool.map(one, LEAGUES))
+            pool = ThreadPoolExecutor(max_workers=min(len(LEAGUES), QUICK_MAX_WORKERS))
+            futures = [pool.submit(one, lg) for lg in LEAGUES]
+            finished, _late = wait_futures(futures, timeout=QUICK_LEAGUES_DEADLINE_SEC)
+            pool.shutdown(wait=False, cancel_futures=True)  # geç kalanlar kısa zaman aşımlarıyla kendiliğinden biter
+            results = [f.result() for f in finished]
             with session() as conn:
                 iddaa_ok = _sync_iddaa(conn, retries=2)
             if not iddaa_ok and not any(ok for _, ok in results):
@@ -198,7 +211,7 @@ def run_update(leagues=None, with_news=True, wait_lock_seconds: int = 0) -> str:
         # Ligler paralel çekilir (her biri kendi bağlantısıyla); site başına istekler yine sıralı
         def one(lg):
             with session() as conn:
-                return lg, espn.sync_league(conn, lg, _progress)
+                return lg, source_for(lg).sync_league(conn, lg, _progress)
 
         with ThreadPoolExecutor(max_workers=6) as pool:
             for lg, n in pool.map(one, leagues or LEAGUES):
