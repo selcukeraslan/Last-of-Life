@@ -70,6 +70,7 @@ async function renderMatches() {
       <div class="pick">
         ${m.pick ? `<div><span class="badge b-info">${esc(m.pick.market)}</span> ${oddsValue(m.iddaa_odds?.[m.pick.market], m.pick.suggested, oddsMove(m, m.pick.market))}</div><div class="muted" style="font-size:12px">olasılık ${pct(m.pick.p)}</div>` : ""}
         <div style="margin-top:4px">${confBadge(m.confidence_label)}</div>
+        ${m.pick ? Slip.button(m, m.pick.market) : ""}
       </div>
     </div>`;
   }
@@ -190,7 +191,7 @@ async function openMatch(id) {
         <div class="p">${pct(k[key].p)} · adil ${k[key].fair ?? "-"}</div>${blendDetail(k[key])}
         <div class="market-odds">${oddsValue(m.iddaa_odds?.[key], k[key].suggested, oddsMove(m, key))}</div>
         <input type="number" step="0.01" min="1" placeholder="bahis oranı" data-p="${k[key].p}" value="${m.iddaa_odds?.[key] ?? ""}">
-        <div class="evout"></div></div>`).join("")}</div>
+        <div class="evout"></div>${Slip.button(m, key)}</div>`).join("")}</div>
       <h4>En olası skorlar</h4>
       <div class="mk-grid">${m.scores.map((s) => `<div class="mk"><div class="k">${s.score}</div><div class="p">${pct(s.p)} · oran ${s.suggested}</div></div>`).join("")}</div>
     </div>
@@ -242,6 +243,7 @@ async function render() {
     if (state.tab === "table") await renderTable();
     if (state.tab === "coupons") await renderCoupons();
     if (state.tab === "value") await renderValue();
+    if (state.tab === "slip") await Slip.render();
     if (state.tab === "model") await renderModel();
   } catch (e) {
     $(`#tab-${state.tab}`).insertAdjacentHTML("afterbegin", `<div class="card" style="color:var(--bad)">Hata: ${esc(e.message)}</div>`);
