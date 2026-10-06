@@ -8,7 +8,8 @@ from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import pwa, updater
+from . import odds_history, pwa, updater
+from .api_odds_history import router as odds_history_router
 from .config import LEAGUES, MODEL, STATIC_DIR
 from .db import get_meta, init_db, is_postgres, session
 from .model import engine
@@ -32,6 +33,7 @@ async def lifespan(_app):
 
 app = FastAPI(title="İddia Oran Öneri", lifespan=lifespan)
 app.include_router(pwa.router)  # /manifest.webmanifest, /sw.js
+app.include_router(odds_history_router)
 
 
 def _check_league(league: str):
@@ -45,11 +47,13 @@ def _attach_iddaa_odds(items: list[dict]) -> list[dict]:
         return items
     with session() as conn:
         by_match = iddaa.odds_for_matches(conn, [item["id"] for item in items])
+        movements = odds_history.movements_for_matches(conn, [item["id"] for item in items])
     for item in items:
         source = by_match.get(str(item["id"]))
         item["iddaa_odds"] = source["odds"] if source else {}
         item["iddaa_event_id"] = source["event_id"] if source else None
         item["iddaa_updated_at"] = source["updated_at"] if source else None
+        item["iddaa_movement"] = movements.get(str(item["id"]), {})
     return items
 
 

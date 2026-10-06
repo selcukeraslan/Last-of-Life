@@ -14,6 +14,7 @@ from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
 from ..config import USER_AGENT
+from .. import odds_history
 from ..db import set_meta
 
 EVENTS_URL = "https://sportsbookv2.iddaa.com/sportsbook/events?st=1&type=0&version=0"
@@ -226,6 +227,9 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
             conn.execute("INSERT INTO iddaa_odds(event_id, market, odd) VALUES (?, ?, ?)",
                          (event["id"], market, odd))
             odds_count += 1
+
+    odds_history.record_snapshot(conn, events, now)
+    odds_history.prune(conn)
 
     stats = {"bulletin_events": len(raw_events), "supported_events": len(events),
              "matched": matched, "odds": odds_count,

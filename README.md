@@ -112,6 +112,14 @@ Site yüklenebilir bir PWA'dır (Android/Chrome "Uygulamayı yükle", iOS Safari
 - `static/pwa.js`: kayıt + çevrimdışı/güncelleme bandı. `static/icons/`: 192/512 + maskable + apple-touch-icon;
   `python scripts/make_pwa_icons.py` ile yeniden üretilir (saf Python).
 - Yerelde de çalışır (`localhost` güvenli bağlam sayılır). Sorun olursa tarayıcıda DevTools → Application → Service Workers.
+**Oran hareketi**: her iddaa çekiminde değişen oranlar `iddaa_odds_history` tablosuna zaman damgalı satır olarak
+eklenir (oran aynıysa yazılmaz; güncel oran yine `iddaa_odds`'tadır). İlk kayıt "açılış", son kayıt güncel
+orandır; açılış iddaa.com'un gerçek açılış oranı değil, bizim ilk gördüğümüz orandır. Oran hücrelerinde
+`2.10 → 1.85 ↓`, maç detayında pazar başına geçmiş, Maçlar sekmesinde açılışa göre %10+ düşenlerin
+**Oran düşüşü** listesi görünür. Bitmiş maçların geçmişi (bültenden çıkmış ve son maç saati 30 günden eski)
+her çekimde temizlenir. API: `/api/odds/history/{match_id}`, `/api/odds/drops?min_pct=10&league=tur.1`;
+`/api/upcoming`, `/api/picks` ve `/api/match/{id}` yanıtlarında `iddaa_movement` (yalnız değişen pazarlar).
+Yeni tablo için `supabase/migrations/20261006000000_iddaa_odds_history.sql` deploy'dan önce uygulanmalıdır.
 
 ## Dosyalar
 
@@ -119,6 +127,7 @@ Site yüklenebilir bir PWA'dır (Android/Chrome "Uygulamayı yükle", iOS Safari
 app/config.py          ayarlar, ligler, model parametreleri
 app/scrapers/espn.py   sonuç & fikstür toplayıcı
 app/scrapers/iddaa.py  iddaa.com bülten oranları + ESPN maç eşleştirmesi
+app/odds_history.py    oran geçmişi: snapshot, hareket, düşüş listesi, temizlik (+ api_odds_history.py)
 app/scrapers/news.py   Google Haberler RSS toplayıcı
 app/sentiment.py       TR/EN başlık duygu + sakatlık analizi
 app/model/ratings.py   Elo, Poisson güçleri, form, puan durumu

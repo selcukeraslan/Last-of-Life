@@ -69,6 +69,16 @@ CREATE TABLE IF NOT EXISTS iddaa_odds (
 );
 CREATE INDEX IF NOT EXISTS ix_iddaa_odds_event ON iddaa_odds(event_id);
 
+CREATE TABLE IF NOT EXISTS iddaa_odds_history (
+    event_id TEXT NOT NULL,
+    market TEXT NOT NULL,
+    odd REAL NOT NULL,
+    captured_at TEXT NOT NULL,      -- ISO UTC; yalnız oran değişince satır eklenir
+    kickoff TEXT NOT NULL,          -- ISO UTC; bitmiş maç temizliği için
+    PRIMARY KEY (event_id, market, captured_at)
+);
+CREATE INDEX IF NOT EXISTS ix_iddaa_odds_history_kickoff ON iddaa_odds_history(kickoff);
+
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,
     value TEXT
