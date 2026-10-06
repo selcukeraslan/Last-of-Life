@@ -1,0 +1,12 @@
+/* Kupon Geçmişi sekmesi */
+.ch-stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 12px; margin-bottom: 12px; }
+.ch-stats .card { margin-bottom: 0; }
+.ch-big { font-size: 28px; font-weight: 700; margin: 4px 0; font-variant-numeric: tabular-nums; }
+.ch-win { color: var(--good); }
+.ch-loss { color: var(--bad); }
+.ch-day { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.ch-day:last-child { border-bottom: 0; }
+.ch-day .row-between { margin-bottom: 4px; }
+.ch-coupon { margin: 4px 0; }
+.ch-coupon summary { cursor: pointer; padding: 4px 0; }
+.ch-coupon table { margin: 6px 0 8px; }

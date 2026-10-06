@@ -78,6 +78,36 @@ CREATE TABLE IF NOT EXISTS iddaa_odds_history (
     PRIMARY KEY (event_id, market, captured_at)
 );
 CREATE INDEX IF NOT EXISTS ix_iddaa_odds_history_kickoff ON iddaa_odds_history(kickoff);
+CREATE TABLE IF NOT EXISTS saved_coupons (
+    day TEXT NOT NULL,              -- YYYY-MM-DD (Türkiye saati)
+    kind TEXT NOT NULL,             -- banko | surprise
+    total_odds REAL NOT NULL,
+    total_probability REAL NOT NULL,
+    odds_source TEXT,
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | won | lost | void
+    created_at TEXT NOT NULL,
+    settled_at TEXT,
+    PRIMARY KEY (day, kind)
+);
+
+CREATE TABLE IF NOT EXISTS saved_coupon_picks (
+    day TEXT NOT NULL,
+    kind TEXT NOT NULL,
+    match_id TEXT NOT NULL,         -- matches.id
+    league TEXT NOT NULL,
+    league_name TEXT,
+    kickoff TEXT NOT NULL,          -- ISO UTC
+    home TEXT NOT NULL,
+    away TEXT NOT NULL,
+    market TEXT NOT NULL,
+    odds REAL NOT NULL,
+    odds_source TEXT,
+    probability REAL NOT NULL,
+    status TEXT NOT NULL DEFAULT 'pending',   -- pending | won | lost | void
+    home_goals INTEGER,
+    away_goals INTEGER,
+    PRIMARY KEY (day, kind, match_id)
+);
 
 CREATE TABLE IF NOT EXISTS meta (
     key TEXT PRIMARY KEY,

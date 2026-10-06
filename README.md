@@ -73,6 +73,13 @@ Kuponda oran olarak eşleşen **iddaa** oranı kullanılır; o pazarda iddaa ora
 Her satırda ve kupon başlığında hangisinin kullanıldığı yazar. Şartı sağlayan seçim yoksa kupon boş döner.
 API: `/api/coupons?day=YYYY-MM-DD`. Testler: `.venv/bin/python -m unittest discover -s tests -t .`
 
+**Kupon Geçmişi** sekmesi: günün Banko ve Sürpriz kuponu (gün + tür başına bir kez, ilk üretildiği haliyle) `saved_coupons` /
+`saved_coupon_picks` tablolarına dondurulur — bugünün kuponu `/api/coupons` ile ilk üretildiğinde veya tam güncellemede
+(cron). Maç sonuçları gelince (hızlı ve tam güncelleme akışında) her seçim ve kupon `Tuttu` / `Yattı` / `Bekliyor` (`İptal`:
+ertelenen/iptal maç, oran 1.00) işaretlenir; tek seçim yattıysa kupon hemen yatmıştır. Sekmede banko tutma oranı, sürpriz
+tutma sayısı, "her gün her kupona 100 TL yatırsaydın" kâr/zarar + ROI (yalnız sonuçlanan kuponlar, kayıtlı oranla) ve günlük
+liste vardır. API: `GET /api/coupon-history?days=60`. Kod: `app/model/coupon_history.py`.
+
 **Model** sekmesindeki geriye dönük test her maçı sadece öncesindeki verilerle tahmin edip doğruluğu ölçer.
 Parametreler `app/config.py` içindeki `MODEL` sözlüğündedir.
 
