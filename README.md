@@ -79,6 +79,7 @@ API: `/api/coupons?day=YYYY-MM-DD`. Testler: `.venv/bin/python -m unittest disco
 ertelenen/iptal maç, oran 1.00) işaretlenir; tek seçim yattıysa kupon hemen yatmıştır. Sekmede banko tutma oranı, sürpriz
 tutma sayısı, "her gün her kupona 100 TL yatırsaydın" kâr/zarar + ROI (yalnız sonuçlanan kuponlar, kayıtlı oranla) ve günlük
 liste vardır. API: `GET /api/coupon-history?days=60`. Kod: `app/model/coupon_history.py`.
+
 **Değerli Oranlar** sekmesi yaklaşan (başlamamış) maçlarda modelin olasılığını iddaa.com oranıyla karşılaştırır;
 EV = olasılık × oran − 1 > 0 olan seçimleri EV'ye göre sıralar (pazar, seçim, model %, iddaa oranı, örtük %,
 EV %, maç/lig/saat). Min. olasılık ve min. EV filtreleri vardır; iddaa oranı olmayan pazar/maç listeye girmez,
