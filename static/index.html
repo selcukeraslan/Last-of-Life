@@ -24,6 +24,7 @@
       <button data-tab="picks">Öneriler</button>
       <button data-tab="coupons">Günlük Kupon</button>
       <button data-tab="coupon-history">Kupon Geçmişi</button>
+      <button data-tab="value">Değerli Oranlar</button>
       <button data-tab="table">Puan Durumu</button>
       <button data-tab="model">Model</button>
     </nav>
@@ -57,6 +58,15 @@
 
     <section id="tab-coupon-history" class="tab hidden">
       <div id="couponHistory"></div>
+    </section>
+
+    <section id="tab-value" class="tab hidden">
+      <div class="toolbar">
+        <label>Gün: <select id="valueDays"><option>3</option><option selected>7</option><option>14</option></select></label>
+        <label>Min. olasılık: <select id="valueMinProb"><option value="0">Hepsi</option><option value="0.2">%20</option><option value="0.3" selected>%30</option><option value="0.4">%40</option><option value="0.5">%50</option><option value="0.6">%60</option></select></label>
+        <label>Min. EV: <select id="valueMinEv"><option value="0">&gt; %0</option><option value="0.03">%3</option><option value="0.05" selected>%5</option><option value="0.1">%10</option><option value="0.2">%20</option></select></label>
+      </div>
+      <div id="valueBets"></div>
     </section>
 
     <section id="tab-table" class="tab hidden">
@@ -96,5 +106,6 @@
   <script src="/static/app.js"></script>
   <script src="/static/pwa.js"></script>
   <script src="/static/coupon-history.js"></script>
+  <script src="/static/value.js"></script>
 </body>
 </html>

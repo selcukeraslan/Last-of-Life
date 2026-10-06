@@ -17,6 +17,7 @@ from .model import coupon_history, engine
 from .scrapers import iddaa
 from .model.coupons import TZ, build_coupons
 from .model.ratings import parse_ts
+from .value_bets import router as value_bets_router
 
 AUTO_UPDATE_HOURS = 6
 
@@ -36,6 +37,7 @@ app = FastAPI(title="İddia Oran Öneri", lifespan=lifespan)
 app.include_router(pwa.router)  # /manifest.webmanifest, /sw.js
 app.include_router(odds_history_router)
 app.include_router(coupon_history_router)
+app.include_router(value_bets_router)
 
 
 def _check_league(league: str):

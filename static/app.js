@@ -233,12 +233,13 @@ function closeModal() { $("#modal").classList.add("hidden"); }
 window.closeModal = closeModal;
 
 async function render() {
-  $("#leagueChips").classList.toggle("hidden", state.tab === "picks" || state.tab === "model");
+  $("#leagueChips").classList.toggle("hidden", state.tab === "picks" || state.tab === "model" || state.tab === "value");
   try {
     if (state.tab === "matches") await renderMatches();
     if (state.tab === "picks") await renderPicks();
     if (state.tab === "table") await renderTable();
     if (state.tab === "coupons") await renderCoupons();
+    if (state.tab === "value") await renderValue();
     if (state.tab === "model") await renderModel();
   } catch (e) {
     $(`#tab-${state.tab}`).insertAdjacentHTML("afterbegin", `<div class="card" style="color:var(--bad)">Hata: ${esc(e.message)}</div>`);
