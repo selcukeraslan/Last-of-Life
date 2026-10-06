@@ -274,6 +274,8 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description="Telegram kupon/sonuç paylaşımı")
     parser.add_argument("--dry-run", action="store_true", help="Mesajı gönderme/kaydetme, ekrana yaz")
     parser.add_argument("--force", action="store_true", help="Sabah penceresini yok say")
+    parser.add_argument("--test", action="store_true",
+                        help="--day için kuponu '🧪 TEST' başlığıyla gönder, kayıt tutma (gerçek günü bloklamaz)")
     parser.add_argument("--day", help="YYYY-MM-DD (Türkiye saati); verilirse pencere denetlenmez")
     args = parser.parse_args(argv)
 
@@ -291,6 +293,17 @@ def main(argv=None) -> int:
         return 0
 
     init_db()
+    if args.test:
+        if not args.day:
+            parser.error("--test için --day gerekli")
+        built = build_coupons(date.fromisoformat(args.day))
+        coupons = [_compact_coupon(built[k]) for k in ("banko", "surprise") if built[k]["picks"]]
+        if not coupons:
+            print("Uygun kupon yok.")
+            return 0
+        send_message(token, chat_id, "🧪 <b>TEST</b>\n" + format_coupon_message(built["date"], coupons))
+        print("test mesajı gönderildi (kayıt tutulmadı)")
+        return 0
 
     def send(text, reply_to=None):
         return send_message(token, chat_id, text, reply_to)
