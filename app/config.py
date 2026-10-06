@@ -58,6 +58,10 @@ MODEL = {
     "rest_coef": 0.03,  # yorgunluk (<4 gün dinlenme) cezası
     "dc_rho": -0.06,  # Dixon-Coles düşük skor düzeltmesi
     "margin": 0.05,  # önerilen orana eklenen kâr marjı (%5)
+    # iddaa.com oranlarından marjı temizlenmiş olasılıkların harmanlama ağırlığı: 0 = yalnız model,
+    # 1 = yalnız piyasa. Oran yoksa model olasılığı aynen kalır. Ağırlığı Model sekmesindeki
+    # harmanlı/harmansız karşılaştırma (log-loss taraması) biriktikçe ayarlayın.
+    "market_weight": 0.5,
 }
 
 NEWS_LOOKBACK_DAYS = 7

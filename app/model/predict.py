@@ -53,6 +53,13 @@ def markets(mat: list[list[float]]) -> dict:
     return {"markets": out, "scores": out_scores}
 
 
+def confidence(data_q: float, pmax: float) -> dict:
+    """Veri kalitesi (0-1) ve en olası 1X2 sonucunun olasılığından güven skoru ve etiketi."""
+    conf = 0.6 * data_q + 0.4 * min(1.0, (pmax - 0.33) / 0.4)
+    return {"confidence": round(conf, 2),
+            "confidence_label": "Yüksek" if conf >= 0.7 else "Orta" if conf >= 0.45 else "Düşük"}
+
+
 # Öneri üretirken bakılan pazarlar ve kısa açıklamaları
 # (A3.5 / Ü1.5 gibi neredeyse her maçta tutan, düşük bilgili pazarlar bilerek yok)
 PICK_MARKETS = ["1", "X", "2", "1X", "X2", "Ü2.5", "A2.5", "KG Var", "KG Yok"]

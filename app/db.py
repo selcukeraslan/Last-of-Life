@@ -202,8 +202,11 @@ def init_db():
     """SQLite şemasını oluşturur. Postgres şeması supabase/migrations ile yönetilir."""
     if is_postgres():
         return
+    from . import odds_log  # import döngüsünü önlemek için burada
+
     with session() as conn:
         conn.executescript(SCHEMA)
+        conn.executescript(odds_log.SCHEMA)
 
 
 def get_meta(conn, key, default=None):

@@ -51,6 +51,22 @@ Herkese açık (Vercel) kurulumda veri ortak Supabase Postgres'tedir; biri günc
 
 Ligler: Süper Lig, Premier League, La Liga, Serie A, Bundesliga, Ligue 1 (`app/config.py` → `LEAGUES`).
 
+## iddaa oranlarıyla harmanlama
+
+`app/model/blend.py`: iddaa.com oranından marj temizlenir (1X2 üçlü, Alt/Üst 1.5/2.5/3.5 ve KG ikili gruplar:
+`1/oran`, grup toplamına bölünür) ve model olasılığıyla `p = (1-w)·p_model + w·p_piyasa` harmanlanır;
+`w = MODEL["market_weight"]` (`app/config.py`, 0 = yalnız model). Oran yoksa (veya grup eksik/tutarsızsa)
+model olasılığı aynen kalır. Çifte şans harmanlı 1X2'den türetilir; öneri, güven, "Claude oran" ve günlük
+kuponlar harmanlı olasılığı kullanır. Yanıtlarda her pazarda `model_p` / `market_p`, tahminde `blend` alanı vardır.
+
+**Backtest karşılaştırması:** geçmiş iddaa oranı tutulmadığı için (`iddaa_odds` her senkronda yeniden yazılır)
+oranlar bundan sonra `odds_log` tablosuna kaydedilir (maç başına pazar başı ilk ve maçtan önceki son oran;
+her oran senkronunda otomatik). Model sekmesindeki test, kayıtlı maçlarda model / harmanlı / yalnız piyasa
+olasılıklarını Brier, log-loss ve isabet ile karşılaştırır; ayrıca `market_weight` için ağırlık taraması verir.
+Kayıt biriktikçe (birkaç yüz sonuçlanmış maç) ağırlık bu taramaya göre ayarlanmalıdır.
+Şema: `supabase/migrations/20261006110000_odds_log.sql` (deploy'dan önce uygulanmalı; uygulanmazsa oran
+senkronu bozulmaz, kayıt atlanır ve `meta.odds_log_error` doldurulur).
+
 ## Model
 
 1. **Poisson güçleri**: zaman ağırlıklı (yarı ömür 200 gün), ev/deplasman ayrı hücum-savunma katsayıları.

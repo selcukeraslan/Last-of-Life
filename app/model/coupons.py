@@ -1,5 +1,6 @@
 """Günlük, ligler arası kupon seçimi (Banko + Sürpriz).
 
+Olasılıklar iddaa.com oranlarıyla harmanlıdır (model/blend.py; oran yoksa model aynen).
 Oran önceliği: eşleşen iddaa.com oranı varsa o kullanılır, yoksa Claude oranı (modelin
 önerilen oranı). Her seçimde hangi oranın kullanıldığı `odds_source` alanında döner.
 Gün sınırı Türkiye saatidir (arayüzdeki saatler de yerel gösterilir).
@@ -11,8 +12,8 @@ from zoneinfo import ZoneInfo
 
 from ..config import LEAGUES
 from ..db import session
-from ..scrapers import iddaa
 from . import engine
+from .blend import blend_predictions
 
 TZ = ZoneInfo("Europe/Istanbul")
 LOOKAHEAD_DAYS = 60
@@ -115,8 +116,8 @@ def _day_entries(target: date) -> list[tuple[dict, list[dict]]]:
             if kickoff > now and kickoff.astimezone(TZ).date() == target:
                 predictions.append(p)
     with session() as conn:
-        odds = iddaa.odds_for_matches(conn, [p["id"] for p in predictions])
-    return [(p, _choices(p, odds.get(str(p["id"]), {}).get("odds", {}))) for p in predictions]
+        predictions = blend_predictions(conn, predictions)  # olasılıklar iddaa ile harmanlı
+    return [(p, _choices(p, p["iddaa_odds"])) for p in predictions]
 
 
 def build_coupons(target: date) -> dict:

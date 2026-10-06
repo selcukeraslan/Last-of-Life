@@ -105,7 +105,7 @@ function couponSource(c) {
 function couponCard(c, title, cls) {
   c = { ...c, picks: c?.picks || [] };
   const rows = c.picks.length ? c.picks.map((p) => `<tr><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td><td>${fmtDateTime(p.kickoff)}</td><td><span class="badge ${cls}">${esc(p.market)}</span></td><td>${couponOdds(p)}</td><td>${pct(p.model_probability)}</td></tr>`).join("") : `<tr><td colspan="6" class="muted">Bu gün uygun seçim bulunamadı.</td></tr>`;
-  return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span>${couponSource(c)} <span class="badge ${cls}">${c.picks.length} maç</span></span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Model</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds ?? "-"} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
+  return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span>${couponSource(c)} <span class="badge ${cls}">${c.picks.length} maç</span></span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Olasılık</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds ?? "-"} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
 }
 
 async function renderCoupons() {
@@ -131,6 +131,7 @@ async function renderTable() {
 
 async function renderModel() {
   const d = await api("/api/backtest");
+  renderBlendBacktest(d);
   const el = $("#backtest");
   $("#btnBacktest").disabled = d.running;
   if (d.running) { el.innerHTML = `<p class="muted">Test çalışıyor… (birkaç dakika sürebilir)</p>`; setTimeout(renderModel, 4000); return; }
@@ -184,8 +185,9 @@ async function openMatch(id) {
     <div class="card">
       <h3>Pazarlar ve oranlar</h3>
       <p class="muted">İddaa oranı bulunan pazarlar otomatik doldurulur; değeri değiştirerek farklı bir oranı da hesaplayabilirsiniz.</p>
+      ${blendNote(m)}
       <div class="mk-grid">${order.map((key) => `<div class="mk"><div class="k">${esc(key)}</div>
-        <div class="p">${pct(k[key].p)} · adil ${k[key].fair ?? "-"}</div>
+        <div class="p">${pct(k[key].p)} · adil ${k[key].fair ?? "-"}</div>${blendDetail(k[key])}
         <div class="market-odds">${oddsValue(m.iddaa_odds?.[key], k[key].suggested, oddsMove(m, key))}</div>
         <input type="number" step="0.01" min="1" placeholder="bahis oranı" data-p="${k[key].p}" value="${m.iddaa_odds?.[key] ?? ""}">
         <div class="evout"></div></div>`).join("")}</div>

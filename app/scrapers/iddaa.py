@@ -13,6 +13,7 @@ import urllib.request
 from datetime import datetime, timezone
 from difflib import SequenceMatcher
 
+from .. import odds_log
 from ..config import USER_AGENT
 from .. import odds_history
 from ..db import set_meta
@@ -211,6 +212,7 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
         if fixture and score > best_for_fixture.get(fixture["id"], (0.0, ""))[0]:
             best_for_fixture[fixture["id"]] = (score, event["id"])
     matched = odds_count = 0
+    log_rows = []  # maç öncesi oranlar ileriye dönük kayda (odds_log) da yazılır
     for event, fixture, score in pairs:
         if fixture and best_for_fixture[fixture["id"]][1] != event["id"]:
             fixture, score = None, 0.0
@@ -227,6 +229,8 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
             conn.execute("INSERT INTO iddaa_odds(event_id, market, odd) VALUES (?, ?, ?)",
                          (event["id"], market, odd))
             odds_count += 1
+            if match_id and event["kickoff"] > now:
+                log_rows.append((match_id, market, odd))
 
     odds_history.record_snapshot(conn, events, now)
     odds_history.prune(conn)
@@ -241,6 +245,7 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
         pct = f"%{stats['rate'] * 100:.0f}" if stats["rate"] is not None else "-"
         progress(f"iddaa.com: bültende {len(raw_events)} futbol maçı; desteklenen liglerde "
                  f"{len(events)} maç, {matched} eşleşme ({pct}), {odds_count} oran")
+    odds_log.record_safely(conn, log_rows, now)
     return stats
 
 
