@@ -7,7 +7,59 @@ const api = async (url, opts) => {
   return r.json();
 };
 
-const state = { league: localStorage.getItem("league") || "tur.1", tab: "matches", leagues: [], model: {}, couponDate: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), couponReq: 0 };
+const state = { league: localStorage.getItem("league") || "tur.1", tab: "matches", leagues: [], model: {}, couponDate: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), couponReq: 0, live: new Map() };
+
+function selectionResult(market, h, a, state) {
+  if (state === "post") return selectionWins(market, h, a) ? "tuttu" : "yattı";
+  if (selectionWins(market, h, a)) return "tutuyor";
+  if (selectionImpossible(market, h, a)) return "yatıyor";
+  return "bekliyor";
+}
+function selectionWins(m, h, a) {
+  const total = h + a, result = h > a ? "1" : h < a ? "2" : "X";
+  if (["1", "X", "2"].includes(m)) return result === m;
+  if (m === "1X") return h >= a; if (m === "12") return h !== a; if (m === "X2") return h <= a;
+  const g = Number(m.match(/[0-9.]+/)?.[0]);
+  if (m.startsWith("Ü")) return total > g;
+  if (m.startsWith("A")) return total < g;
+  if (m === "KG Var") return h > 0 && a > 0; if (m === "KG Yok") return h === 0 || a === 0;
+  return false;
+}
+function selectionImpossible(m, h, a) {
+  const total = h + a;
+  if (m.startsWith("Ü")) return total >= Number(m.match(/[0-9.]+/)?.[0]);
+  if (m.startsWith("A")) return total > Number(m.match(/[0-9.]+/)?.[0]);
+  if (m === "KG Var") return h === 0 || a === 0;
+  if (m === "KG Yok") return h > 0 && a > 0;
+  if (["1", "X", "2"].includes(m)) return (m === "1" && a > h) || (m === "2" && h > a) || (m === "X" && h !== a);
+  if (m === "1X") return a > h; if (m === "12") return h === a; if (m === "X2") return h > a;
+  return false;
+}
+function liveBadge(m) { return m ? `<span class="badge ${m.state === "in" ? "b-bad" : "b-info"}">${esc(m.home_goals)}–${esc(m.away_goals)} · ${esc(m.minute)}</span>` : ""; }
+function pickLive(p) {
+  return state.live.get(String(p.id)) || [...state.live.values()].find((m) => m.home === p.home && m.away === p.away);
+}
+async function refreshLive() {
+  try {
+    const data = await api("/api/live");
+    state.live = new Map((data.matches || []).map((m) => [String(m.id), m]));
+    document.querySelectorAll(".match[data-id]").forEach((card) => {
+      const m = state.live.get(card.dataset.id), time = card.querySelector(".time");
+      if (time && m) time.innerHTML = liveBadge(m);
+    });
+    document.querySelectorAll("[data-live-match]").forEach((row) => {
+      const m = pickLive({ id: row.dataset.liveMatch, home: row.dataset.home, away: row.dataset.away });
+      const status = row.querySelector(".live-status");
+      const score = row.querySelector(".live-score");
+      if (status) {
+        const result = m && selectionResult(row.dataset.market, m.home_goals, m.away_goals, m.state);
+        status.innerHTML = result ? `<span class="badge ${result === "yatıyor" || result === "yattı" ? "b-bad" : "b-good"}">${result}</span>` : "";
+      }
+      if (score) score.innerHTML = m ? liveBadge(m) : "";
+    });
+    if (state.tab === "slip") Slip.render();
+  } catch { /* canlı skor geçici olarak alınamazsa mevcut görünüm korunur */ }
+}
 
 function fmtTime(iso) { return new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }); }
 function fmtDay(iso) { return new Date(iso).toLocaleDateString("tr-TR", { weekday: "long", day: "numeric", month: "long" }); }
@@ -55,8 +107,9 @@ async function renderMatches() {
     const day = fmtDay(m.kickoff);
     if (day !== lastDay) { html += `<div class="day-head">${day}</div>`; lastDay = day; }
     const k = m.markets;
+    const live = state.live.get(String(m.id));
     html += `<div class="card match" data-id="${m.id}" role="button" tabindex="0" aria-label="${esc(m.home)} - ${esc(m.away)} maç detayı">
-      <div class="time">${fmtTime(m.kickoff)}</div>
+      <div class="time">${live ? liveBadge(live) : fmtTime(m.kickoff)}</div>
       <div class="teams">
         <div>${img(m.home_logo)}<b>${esc(m.home)}</b><span class="xg">${m.lambda_home.toFixed(2)} xG</span></div>
         <div>${img(m.away_logo)}<b>${esc(m.away)}</b><span class="xg">${m.lambda_away.toFixed(2)} xG</span></div>
@@ -105,7 +158,7 @@ function couponSource(c) {
 }
 function couponCard(c, title, cls) {
   c = { ...c, picks: c?.picks || [] };
-  const rows = c.picks.length ? c.picks.map((p) => `<tr><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td><td>${fmtDateTime(p.kickoff)}</td><td><span class="badge ${cls}">${esc(p.market)}</span></td><td>${couponOdds(p)}</td><td>${pct(p.model_probability)}</td></tr>`).join("") : `<tr><td colspan="6" class="muted">Bu gün uygun seçim bulunamadı.</td></tr>`;
+  const rows = c.picks.length ? c.picks.map((p) => `<tr data-live-match="${esc(p.id)}" data-home="${esc(p.home)}" data-away="${esc(p.away)}" data-market="${esc(p.market)}"><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td><td>${fmtDateTime(p.kickoff)} <span class="live-score">${liveBadge(pickLive(p))}</span></td><td><span class="badge ${cls}">${esc(p.market)}</span> <span class="live-status"></span></td><td>${couponOdds(p)}</td><td>${pct(p.model_probability)}</td></tr>`).join("") : `<tr><td colspan="6" class="muted">Bu gün uygun seçim bulunamadı.</td></tr>`;
   return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span>${couponSource(c)} <span class="badge ${cls}">${c.picks.length} maç</span></span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Olasılık</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds ?? "-"} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
 }
 
@@ -327,7 +380,10 @@ $("#couponPrev").addEventListener("click", () => shiftCouponDay(-1));
 $("#couponNext").addEventListener("click", () => shiftCouponDay(1));
 
 setInterval(showLastUpdate, 30000);
+setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
+document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshLive(); });
 (async () => {
+  await refreshLive();
   await loadLeagues();
   render();
   pollUpdate();

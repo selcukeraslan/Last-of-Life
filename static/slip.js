@@ -112,9 +112,11 @@
     if (dupIds.has(r.id)) flags.push(`<span class="badge b-warn" title="Aynı maçtan birden fazla seçim">aynı maç</span>`);
     if (r.started) flags.push(`<span class="badge b-bad">başladı</span>`);
     if (missing.has(r.id)) flags.push(`<span class="badge b-bad" title="Maç güncel listede yok; oynanmış olabilir">listede yok</span>`);
-    return `<tr class="${dupIds.has(r.id) ? "slip-dup" : ""}">
+    const live = typeof state !== "undefined" && state.live && (state.live.get(String(r.id)) || [...state.live.values()].find((m) => m.home === r.home && m.away === r.away));
+    const liveStatus = live && typeof selectionResult === "function" ? selectionResult(r.market, live.home_goals, live.away_goals, live.state) : "";
+    return `<tr class="${dupIds.has(r.id) ? "slip-dup" : ""}" data-live-match="${esc(r.id)}" data-home="${esc(r.home)}" data-away="${esc(r.away)}" data-market="${esc(r.market)}">
       <td class="l"><b>${esc(r.home)}</b> – ${esc(r.away)}<span class="claude-odd">${esc(r.leagueName)}</span></td>
-      <td>${fmtDateTime(r.kickoff)}</td><td>${marketBadge(r.market)} ${flags.join(" ")}</td>
+      <td>${fmtDateTime(r.kickoff)} <span class="live-score">${live ? `<span class="badge b-bad">${live.home_goals}–${live.away_goals} · ${esc(live.minute)}</span>` : ""}</span></td><td>${marketBadge(r.market)} <span class="live-status">${liveStatus ? `<span class="badge ${liveStatus === "yatıyor" || liveStatus === "yattı" ? "b-bad" : "b-good"}">${liveStatus}</span>` : ""}</span> ${flags.join(" ")}</td>
       <td>${oddsCell(r)}</td><td>${pct(r.p)}</td>
       <td><button type="button" class="slip-remove" data-slip-remove="${esc(r.key)}" aria-label="${esc(r.home)} – ${esc(r.away)} ${esc(r.market)} seçimini çıkar">×</button></td></tr>`;
   }
