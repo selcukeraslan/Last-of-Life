@@ -218,6 +218,8 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS ix_iddaa_events_small_kickoff ON iddaa_events(is_small, kickoff)")
         conn.execute("UPDATE iddaa_events SET is_small=1 WHERE league LIKE 'small:%'")
         conn.executescript(odds_log.SCHEMA)
+        from . import ops
+        conn.executescript(ops.SCHEMA)
 
 
 def get_meta(conn, key, default=None):

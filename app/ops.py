@@ -1,0 +1,122 @@
+"""Altyapı yardımcıları: sonuç önbelleği, IP hız sınırı, sağlık kontrolü, yapılandırılmış hata günlüğü."""
+import json
+import logging
+import time
+from datetime import datetime, timezone
+
+from fastapi import Request
+from fastapi.responses import JSONResponse
+
+from .db import get_meta, session
+
+log = logging.getLogger("iddiaoran")
+
+SCHEMA = """
+CREATE TABLE IF NOT EXISTS rate_limits (
+    key TEXT NOT NULL,
+    win BIGINT NOT NULL,
+    hits INTEGER NOT NULL DEFAULT 0,
+    PRIMARY KEY (key, win)
+);
+"""
+
+_cache: dict = {}
+_MAX_ENTRIES = 200
+
+
+def data_version() -> str:
+    """Önbellek anahtarı: veri güncellemeleri (ESPN + iddaa) değişince önbellek kendiliğinden geçersiz olur."""
+    with session() as conn:
+        return "|".join(str(get_meta(conn, k) or "") for k in ("last_updated_at", "last_update", "iddaa_last_update"))
+
+
+def cached(key: tuple, build):
+    """Süreç-içi önbellek (veri sürümü anahtarlı) + Vercel CDN için Cache-Control."""
+    try:
+        version = data_version()
+    except Exception:  # sürüm okunamıyorsa önbelleği atla
+        return build()
+    hit = _cache.get(key)
+    if hit and hit[0] == version:
+        return hit[1]
+    value = build()
+    if len(_cache) >= _MAX_ENTRIES:
+        _cache.clear()
+    _cache[key] = (version, value)
+    return value
+
+
+def client_ip(request: Request) -> str:
+    fwd = request.headers.get("x-forwarded-for", "")
+    return fwd.split(",")[0].strip() or (request.client.host if request.client else "unknown")
+
+
+def rate_limited(key: str, limit: int, window_seconds: int = 60) -> bool:
+    """DB tabanlı sabit pencere sayacı (serverless uyumlu). Sınır aşıldıysa True."""
+    window = int(time.time() // window_seconds)
+    with session() as conn:
+        conn.execute("DELETE FROM rate_limits WHERE win < ?", (window - 5,))
+        conn.execute(
+            "INSERT INTO rate_limits(key, win, hits) VALUES(?, ?, 1) "
+            "ON CONFLICT(key, win) DO UPDATE SET hits = rate_limits.hits + 1", (key, window))
+        row = conn.execute("SELECT hits FROM rate_limits WHERE key=? AND win=?", (key, window)).fetchone()
+    return row["hits"] > limit
+
+
+def _age(ts: str | None):
+    if not ts:
+        return None
+    try:
+        dt = datetime.fromisoformat(ts.replace("Z", "+00:00"))
+        if dt.tzinfo is None:
+            dt = dt.replace(tzinfo=timezone.utc)
+        return int((datetime.now(timezone.utc) - dt).total_seconds())
+    except ValueError:
+        return None
+
+
+MAX_UPDATE_AGE = 3 * 3600   # cron 30 dk'da bir; 3 saat geçtiyse sorun var
+MAX_IDDAA_AGE = 3 * 3600
+
+
+def health() -> dict:
+    out = {"db": False, "update_age_seconds": None, "iddaa_age_seconds": None, "problems": []}
+    try:
+        with session() as conn:
+            conn.execute("SELECT 1").fetchone()
+            out["db"] = True
+            out["update_age_seconds"] = _age(get_meta(conn, "last_updated_at") or get_meta(conn, "last_update"))
+            out["iddaa_age_seconds"] = _age(get_meta(conn, "iddaa_last_update"))
+    except Exception as exc:
+        log.error(json.dumps({"event": "health_db_error", "error": repr(exc)}))
+        out["problems"].append("db")
+        out["ok"] = False
+        return out
+    for name, age, limit in (("update_stale", out["update_age_seconds"], MAX_UPDATE_AGE),
+                             ("iddaa_stale", out["iddaa_age_seconds"], MAX_IDDAA_AGE)):
+        if age is None or age > limit:
+            out["problems"].append(name)
+    out["ok"] = not out["problems"]
+    return out
+
+
+# Vercel CDN: yalnız başarılı GET yanıtları önbelleğe alınır.
+CDN_TTL = {"/api/leagues": 60, "/api/upcoming": 60, "/api/picks": 60, "/api/coupons": 60,
+           "/api/value-bets": 60, "/api/standings": 120, "/api/live": 15, "/api/model-report": 300,
+           "/api/coupon-history": 120}
+
+
+def install(app):
+    @app.middleware("http")
+    async def _cdn_cache(request: Request, call_next):
+        response = await call_next(request)
+        ttl = CDN_TTL.get(request.url.path)
+        if ttl and request.method == "GET" and response.status_code == 200 and "cache-control" not in response.headers:
+            response.headers["Cache-Control"] = f"public, s-maxage={ttl}, stale-while-revalidate={ttl * 10}"
+        return response
+
+    @app.exception_handler(Exception)
+    async def _unhandled(request: Request, exc: Exception):
+        log.error(json.dumps({"event": "unhandled_exception", "path": request.url.path,
+                              "method": request.method, "error": repr(exc)}), exc_info=exc)
+        return JSONResponse({"detail": "Sunucu hatası"}, status_code=500)

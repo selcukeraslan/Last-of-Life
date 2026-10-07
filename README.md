@@ -201,3 +201,10 @@ scripts/               bir kerelik SQLite -> Postgres aktarımı
 - iddaa.com yalnızca o anda maç öncesi bülteninde yayımlanan oranları döndürür. Uzak tarihli veya henüz
   oran açılmamış ESPN fikstürlerinde iddaa oranı `-` görünür; Claude oranı gösterilmeye devam eder.
 - Tahminler istatistiksel tahmindir, kesinlik içermez. Sorumlu oynayın.
+
+## Performans, izleme ve gizlilik
+
+- **Önbellek:** okuma uç noktaları süreç içinde `last_updated_at`/`iddaa_last_update` sürümüne göre önbelleğe alınır; ayrıca `Cache-Control: s-maxage + stale-while-revalidate` ile Vercel CDN'de tutulur.
+- **/api/update koruması:** IP başına dakikada 5 istek (`rate_limits` tablosu, migration `20261008120000_rate_limits.sql`) + 10 dk cooldown.
+- **/api/health:** DB erişimi, son güncelleme ve iddaa çekimi yaşı; sorun varsa 503. GitHub Actions `health.yml` 30 dakikada bir kontrol eder, başarısızsa workflow fail olur. Sunucu hataları JSON yapılandırılmış log olarak yazılır.
+- **Gizlilik:** Vercel Web Analytics ve Speed Insights çerezsiz çalışır, kişisel veri veya IP saklamaz; yalnızca anonim sayfa görüntüleme ve performans metrikleri toplanır. (Vercel panelinde Analytics ve Speed Insights'ın etkinleştirilmesi gerekir.)
