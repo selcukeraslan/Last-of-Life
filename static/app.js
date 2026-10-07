@@ -87,13 +87,16 @@ function oddsValue(iddaa, claude, move = "") {
 async function loadLeagues() {
   const d = await api("/api/leagues");
   state.leagues = d.leagues;
+  state.smallLeagues = d.small_leagues || [];
   state.model = d.model;
   state.lastUpdate = d.last_update;
   showLastUpdate();
   $("#marginPct").textContent = Math.round(d.model.margin * 100);
   $("#params").innerHTML = `<table>${Object.entries(d.model).map(([k, v]) => `<tr><td class="l"><code>${k}</code></td><td>${v}</td></tr>`).join("")}</table>`;
-  $("#leagueChips").innerHTML = d.leagues.map((l) =>
-    `<button class="chip ${l.id === state.league ? "active" : ""}" data-league="${l.id}">${esc(l.name)} <span class="muted">${l.played || 0}</span></button>`).join("");
+  $("#leagueChips").innerHTML = `<div class="league-group"><b>Ana Ligler</b>${d.leagues.map((l) =>
+    `<button class="chip ${l.id === state.league ? "active" : ""}" data-league="${l.id}">${esc(l.name)} <span class="muted">${l.played || 0}</span></button>`).join("")}</div>` +
+    (state.smallLeagues.length ? `<div class="league-group"><b>Küçük Ligler</b>${state.smallLeagues.map((l) =>
+      `<button class="chip ${l.id === state.league ? "active" : ""}" data-league="${esc(l.id)}">${esc(l.country)} · ${esc(l.name)}</button>`).join("")}</div>` : "");
 }
 
 async function renderMatches() {
@@ -102,6 +105,8 @@ async function renderMatches() {
   renderOddsDrops();
   const list = await api(`/api/upcoming?league=${state.league}&days=14`);
   if (!list.length) { el.innerHTML = `<div class="card muted">Önümüzdeki 14 günde maç bulunamadı. Verileri güncellemeyi deneyin.</div>`; return; }
+  const selectedLeague = [...state.leagues, ...(state.smallLeagues || [])].find((l) => l.id === state.league);
+  const leagueTitle = selectedLeague ? `${selectedLeague.country ? esc(selectedLeague.country) + " · " : ""}${esc(selectedLeague.name)}` : "";
   let html = "", lastDay = "";
   for (const m of list) {
     const day = fmtDay(m.kickoff);
@@ -127,7 +132,7 @@ async function renderMatches() {
       </div>
     </div>`;
   }
-  el.innerHTML = html;
+  el.innerHTML = (leagueTitle ? `<div class="day-head">${leagueTitle}</div>` : "") + html;
 }
 
 async function renderPicks() {
@@ -158,7 +163,6 @@ function couponSource(c) {
 }
 function couponCard(c, title, cls) {
   c = { ...c, picks: c?.picks || [] };
-  const rows = c.picks.length ? c.picks.map((p) => `<tr data-live-match="${esc(p.id)}" data-home="${esc(p.home)}" data-away="${esc(p.away)}" data-market="${esc(p.market)}"><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td><td>${fmtDateTime(p.kickoff)} <span class="live-score">${liveBadge(pickLive(p))}</span></td><td><span class="badge ${cls}">${esc(p.market)}</span> <span class="live-status"></span></td><td>${couponOdds(p)}</td><td>${pct(p.model_probability)}</td></tr>`).join("") : `<tr><td colspan="6" class="muted">Bu gün uygun seçim bulunamadı.</td></tr>`;
   return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span>${couponSource(c)} <span class="badge ${cls}">${c.picks.length} maç</span></span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Olasılık</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds ?? "-"} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
 }
 
@@ -167,7 +171,7 @@ async function renderCoupons() {
   el.innerHTML = `<p class="muted">Kuponlar hesaplanıyor…</p>`;
   const d = await api(`/api/coupons?day=${state.couponDate}`);
   if (req !== state.couponReq) return; // daha yeni bir gün seçildi
-  el.innerHTML = `<p class="muted">${fmtDay(d.date + "T12:00:00Z")} · tüm ligler · ${d.matches} maç</p>` + couponCard(d.banko, "Banko Kupon", "b-good") + couponCard(d.surprise, "Sürpriz Kupon", "b-warn");
+  el.innerHTML = `<p class="muted">${fmtDay(d.date + "T12:00:00Z")} · ana ligler: ${d.matches} maç</p>` + couponCard(d.banko, "Banko Kupon", "b-good") + couponCard(d.surprise, "Sürpriz Kupon", "b-warn") + couponCard(d.small_leagues, "Küçük Ligler Kuponu", "b-warn");
 }
 
 async function renderTable() {

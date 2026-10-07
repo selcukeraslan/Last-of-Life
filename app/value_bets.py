@@ -47,6 +47,8 @@ def collect(predictions: list[dict], odds_by_match: dict[str, dict],
     with_odds = positive = 0
     items = []
     for pred in predictions:
+        if pred.get("small_league") or str(pred.get("league", "")).startswith("small:"):
+            continue
         source = odds_by_match.get(str(pred["id"]))
         odds = (source or {}).get("odds") or {}
         model_markets = dict(pred.get("markets") or {})
@@ -101,11 +103,14 @@ def build_value_bets(days: int = DEFAULT_DAYS, min_prob: float = 0.0, min_ev: fl
         for p in engine.get_model(league).upcoming_predictions(days):
             if datetime.fromisoformat(p["kickoff"].replace("Z", "+00:00")) > now:  # başlamış maça oran yok
                 predictions.append(p)
+    small_count = 0
     with session() as conn:
+        small_count = conn.execute("SELECT COUNT(DISTINCT id) n FROM iddaa_events WHERE is_small=1").fetchone()["n"]
         odds = iddaa.odds_for_matches(conn, [p["id"] for p in predictions])
         last_update = get_meta(conn, "iddaa_last_update")
     result = collect(predictions, odds, min_prob, min_ev)
     return {"days": days, "min_probability": min_prob, "min_ev": min_ev, "iddaa_last_update": last_update,
+            "small_leagues_excluded": small_count,
             **result, "message": explain_empty(result, days, min_prob, min_ev)}
 
 

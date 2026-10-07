@@ -68,10 +68,15 @@ def leagues():
         iddaa_last = get_meta(conn, "iddaa_last_update")
         iddaa_error = get_meta(conn, "iddaa_last_error")
         iddaa_stats = json.loads(get_meta(conn, "iddaa_stats", "null"))
+        small = [dict(r) for r in conn.execute(
+            "SELECT league, MAX(league_name) league_name, MAX(country) country, COUNT(*) total "
+            "FROM iddaa_events WHERE is_small=1 GROUP BY league ORDER BY country, league_name")]
     return {"last_update": last, "model": MODEL,
             "iddaa": {"last_update": iddaa_last, "error": iddaa_error, "stats": iddaa_stats},
             "leagues": [{"id": k, **v, "total": rows.get(k, {}).get("total", 0),
-                         "played": rows.get(k, {}).get("played", 0)} for k, v in LEAGUES.items()]}
+                         "played": rows.get(k, {}).get("played", 0), "category": "main"} for k, v in LEAGUES.items()],
+            "small_leagues": [{"id": r["league"], "name": r["league_name"], "country": r["country"],
+                               "total": r["total"], "played": 0, "category": "small"} for r in small]}
 
 
 @app.get("/api/live")
@@ -81,12 +86,57 @@ def live_scores():
 
 @app.get("/api/upcoming")
 def upcoming(league: str, days: int = Query(14, ge=1, le=30)):
+    if league.startswith("small:"):
+        now = datetime.now(timezone.utc)
+        with session() as conn:
+            rows = conn.execute(
+                """SELECT e.id, e.league, e.league_name, e.country, e.kickoff, e.home, e.away,
+                          o.market, o.odd
+                   FROM iddaa_events e LEFT JOIN iddaa_odds o ON o.event_id=e.id
+                   WHERE e.is_small=1 AND e.league=? AND e.kickoff>=? AND e.kickoff<=?
+                   ORDER BY e.kickoff""",
+                (league, now.isoformat(), (now + timedelta(days=days)).isoformat())).fetchall()
+        grouped = {}
+        for r in rows:
+            item = grouped.setdefault(r["id"], {"id": r["id"], "league": league,
+                "league_name": r["league_name"], "country": r["country"], "kickoff": r["kickoff"],
+                "home": r["home"], "away": r["away"], "iddaa_odds": {}, "small_league": True})
+            if r["market"] and r["odd"]:
+                item["iddaa_odds"][r["market"]] = r["odd"]
+        return [_small_prediction(item) for item in grouped.values()]
     _check_league(league)
-    return _attach_iddaa_odds(engine.get_model(league).upcoming_predictions(days))
+    items = _attach_iddaa_odds(engine.get_model(league).upcoming_predictions(days))
+    for item in items:
+        item["league_name"] = LEAGUES[league]["name"]
+    return items
+
+
+def _small_prediction(event: dict) -> dict:
+    """Marjı temizlenmiş bülten olasılığı, küçük liglerde düşük güven etiketiyle sunulur."""
+    from .model.small_leagues import predict_event
+    return predict_event(event)
 
 
 @app.get("/api/match/{match_id}")
 def match(match_id: str):
+    with session() as conn:
+        small = conn.execute("SELECT * FROM iddaa_events WHERE id=? AND is_small=1", (match_id,)).fetchone()
+        if small:
+            odds = {r["market"]: r["odd"] for r in conn.execute(
+                "SELECT market, odd FROM iddaa_odds WHERE event_id=?", (match_id,)).fetchall()}
+            event = {"id": small["id"], "league": small["league"], "league_name": small["league_name"],
+                "country": small["country"], "kickoff": small["kickoff"], "home": small["home"],
+                "away": small["away"], "iddaa_odds": odds, "small_league": True}
+            result = _small_prediction(event)
+            result["league_name"] = f"{small['country']} · {small['league_name']}"
+            result["factors"] = {"table": {"home": None, "away": None},
+                "elo": {"home": 1500, "away": 1500, "lambda_home": result["lambda_home"], "lambda_away": result["lambda_away"]},
+                "poisson": {"att_home": 1, "att_away": 1, "def_home": 1, "def_away": 1,
+                            "home": result["lambda_home"], "away": result["lambda_away"]},
+                "form": {"home": "", "away": ""}, "news": {"home": {"score": 0, "injuries": 0}, "away": {"score": 0, "injuries": 0}},
+                "rest_days": {"home": None, "away": None}}
+            result["scores"] = []
+            return result
     for lg in LEAGUES:
         m = next((x for x in engine.get_model(lg).upcoming if x["id"] == match_id), None)
         if m:
@@ -110,7 +160,8 @@ def standings(league: str):
 @app.get("/api/picks")
 def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0):
     """Tüm liglerden en güvenilir önerileri döndürür."""
-    predictions = [p for lg in LEAGUES for p in engine.get_model(lg).upcoming_predictions(days)]
+    predictions = [p for lg in LEAGUES for p in engine.get_model(lg).upcoming_predictions(days)
+                   if not p.get("small_league")]
     out = []
     for p in _attach_iddaa_odds(predictions):  # öneri/güven harmanlı olasılıktan hesaplanır
         if p.get("pick") and p["confidence"] >= min_conf:

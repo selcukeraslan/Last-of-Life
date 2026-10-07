@@ -57,6 +57,9 @@ CREATE TABLE IF NOT EXISTS iddaa_events (
     away TEXT NOT NULL,
     match_id TEXT,                  -- eşleşen ESPN matches.id
     match_score REAL,
+    league_name TEXT,
+    country TEXT,
+    is_small INTEGER NOT NULL DEFAULT 0,
     updated_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS ix_iddaa_events_match ON iddaa_events(match_id);
@@ -206,6 +209,14 @@ def init_db():
 
     with session() as conn:
         conn.executescript(SCHEMA)
+        # Var olan SQLite veritabanlarını sürüm değişmeden ileri uyumlu tut.
+        columns = {r["name"] for r in conn.execute("PRAGMA table_info(iddaa_events)").fetchall()}
+        for name, declaration in (("league_name", "TEXT"), ("country", "TEXT"),
+                                  ("is_small", "INTEGER NOT NULL DEFAULT 0")):
+            if name not in columns:
+                conn.execute(f"ALTER TABLE iddaa_events ADD COLUMN {name} {declaration}")
+        conn.execute("CREATE INDEX IF NOT EXISTS ix_iddaa_events_small_kickoff ON iddaa_events(is_small, kickoff)")
+        conn.execute("UPDATE iddaa_events SET is_small=1 WHERE league LIKE 'small:%'")
         conn.executescript(odds_log.SCHEMA)
 
 

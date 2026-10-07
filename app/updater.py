@@ -30,6 +30,7 @@ IDDAA_MAX_STALE_HOURS = 6  # iddaa erişilemezse eski oranlar en çok bu kadar s
 # iddaa (en kötü ~55 sn) çalışır. Yavaş kalan lig atlanır, bir sonraki güncelleme tamamlar.
 QUICK_MAX_WORKERS = 8
 QUICK_LEAGUES_DEADLINE_SEC = 120
+QUICK_IDDAA_RETRIES = 1  # hızlı endpoint bülten denemesini sınırlar; tam cron daha dayanıklıdır
 
 _progress_state = {"message": ""}
 
@@ -182,7 +183,7 @@ def run_quick_update() -> dict:
             pool.shutdown(wait=False, cancel_futures=True)  # geç kalanlar kısa zaman aşımlarıyla kendiliğinden biter
             results = [f.result() for f in finished]
             with session() as conn:
-                iddaa_ok = _sync_iddaa(conn, retries=2)
+                iddaa_ok = _sync_iddaa(conn, retries=QUICK_IDDAA_RETRIES)
             if not iddaa_ok and not any(ok for _, ok in results):
                 error = "Kaynaklara ulaşılamadı (ESPN ve iddaa)"
     except Exception as exc:

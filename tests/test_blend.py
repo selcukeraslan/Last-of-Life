@@ -128,7 +128,7 @@ class BlendPredictionTest(unittest.TestCase):
                 patch.object(db, "DATABASE_URL", None):
             db.init_db()
             with db.session() as conn:
-                conn.execute("INSERT INTO iddaa_events VALUES('e1','eng.1',1,'2026-10-17T14:00:00+00:00','A','B','m1',1,'t')")
+                conn.execute("INSERT INTO iddaa_events(id,league,competition_id,kickoff,home,away,match_id,match_score,updated_at) VALUES('e1','eng.1',1,'2026-10-17T14:00:00+00:00','A','B','m1',1,'t')")
                 for market, odd in ODDS_1X2.items():
                     conn.execute("INSERT INTO iddaa_odds VALUES('e1',?,?)", (market, odd))
             with db.session() as conn:
