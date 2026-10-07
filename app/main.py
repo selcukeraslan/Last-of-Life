@@ -9,6 +9,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import odds_history, odds_log, pwa, updater
+from . import live
 from .api_odds_history import router as odds_history_router
 from .config import LEAGUES, MODEL, STATIC_DIR
 from .db import get_meta, init_db, is_postgres, session
@@ -71,6 +72,11 @@ def leagues():
             "iddaa": {"last_update": iddaa_last, "error": iddaa_error, "stats": iddaa_stats},
             "leagues": [{"id": k, **v, "total": rows.get(k, {}).get("total", 0),
                          "played": rows.get(k, {}).get("played", 0)} for k, v in LEAGUES.items()]}
+
+
+@app.get("/api/live")
+def live_scores():
+    return {"matches": live.get_live_matches(), "updated_at": datetime.now(timezone.utc).isoformat()}
 
 
 @app.get("/api/upcoming")
