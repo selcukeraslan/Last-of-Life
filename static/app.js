@@ -8,7 +8,7 @@ const api = async (url, opts) => {
 };
 
 const savedLeague = localStorage.getItem("league") || "tur.1";
-const state = { league: savedLeague, tab: "matches", leagues: [], model: {}, smallLeaguesOpen: savedLeague.startsWith("small:"), picksCategory: "main", couponDate: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), couponReq: 0, live: new Map() };
+const state = { league: savedLeague, tab: "matches", leagues: [], model: {}, smallLeaguesOpen: savedLeague.startsWith("small:"), picksCategory: "main", couponDate: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), couponReq: 0, matchReq: 0, live: new Map() };
 
 function selectionResult(market, h, a, state) {
   if (state === "post") return selectionWins(market, h, a) ? "tuttu" : "yattı";
@@ -84,6 +84,18 @@ function img(src) { return src ? `<img src="${esc(src)}" alt="" loading="lazy" o
 function oddsValue(iddaa, claude, move = "") {
   return `<b class="iddaa-odd">${iddaa ?? "-"}</b><span class="claude-odd">Claude oran: ${claude ?? "-"}</span>${move}`;
 }
+function matchOddsValue(match, market, move = "") {
+  if (!match.small_league) return oddsValue(match.iddaa_odds?.[market], match.markets[market]?.suggested, move);
+  const odd = match.iddaa_odds?.[market];
+  return `<b class="iddaa-odd">${odd ?? "-"}</b>${odd == null
+    ? `<span class="claude-odd">iddaa oranı yok</span>`
+    : `<span class="src src-iddaa">iddaa</span>`}${move}`;
+}
+function matchProbability(match, market) {
+  const probability = match.markets?.[market]?.p;
+  if (!Number.isFinite(probability)) return "veri yok";
+  return `${match.small_league ? "piyasa " : ""}${pct(probability)}`;
+}
 
 function renderLeagueChips() {
   const main = state.leagues.map((l) =>
@@ -135,22 +147,24 @@ async function renderMatches() {
     const day = fmtDay(m.kickoff);
     if (day !== lastDay) { html += `<div class="day-head">${day}</div>`; lastDay = day; }
     const k = m.markets;
+    const detailId = m.small_league ? (m.iddaa_event_id || m.id) : m.id;
+    const has1x2Probabilities = ["1", "X", "2"].every((key) => Number.isFinite(k[key]?.p));
     const live = state.live.get(String(m.id));
-    html += `<div class="card match" data-id="${m.id}" role="button" tabindex="0" aria-label="${esc(m.home)} - ${esc(m.away)} maç detayı">
+    html += `<div class="card match" data-id="${esc(m.id)}" data-match-id="${esc(detailId)}" data-event-id="${esc(m.iddaa_event_id || (m.small_league ? m.id : ""))}" data-competition-id="${esc(m.competition_id ?? "")}" role="button" tabindex="0" aria-label="${esc(m.home)} - ${esc(m.away)} maç detayı">
       <div class="time">${live ? liveBadge(live) : fmtTime(m.kickoff)}</div>
       <div class="teams">
-        <div>${img(m.home_logo)}<b>${esc(m.home)}</b><span class="xg">${m.lambda_home.toFixed(2)} xG</span></div>
-        <div>${img(m.away_logo)}<b>${esc(m.away)}</b><span class="xg">${m.lambda_away.toFixed(2)} xG</span></div>
+        <div>${img(m.home_logo)}<b>${esc(m.home)}</b><span class="xg">${Number.isFinite(m.lambda_home) ? m.lambda_home.toFixed(2) + " xG" : "xG verisi yok"}</span></div>
+        <div>${img(m.away_logo)}<b>${esc(m.away)}</b><span class="xg">${Number.isFinite(m.lambda_away) ? m.lambda_away.toFixed(2) + " xG" : "xG verisi yok"}</span></div>
       </div>
       <div>
-        <div class="probbar"><div class="h" style="width:${k["1"].p * 100}%"></div><div class="d" style="width:${k["X"].p * 100}%"></div><div class="a" style="width:${k["2"].p * 100}%"></div></div>
+        ${has1x2Probabilities ? `<div class="probbar"><div class="h" style="width:${k["1"].p * 100}%"></div><div class="d" style="width:${k["X"].p * 100}%"></div><div class="a" style="width:${k["2"].p * 100}%"></div></div>` : `<div class="muted">Olasılık verisi yok</div>`}
         <div class="odds3">
-          ${["1", "X", "2"].map((s) => `<div class="odd"><small>${s} · ${pct(k[s].p)}</small>${oddsValue(m.iddaa_odds?.[s], k[s].suggested, oddsMove(m, s))}</div>`).join("")}
+          ${["1", "X", "2"].map((s) => `<div class="odd"><small>${s} · ${matchProbability(m, s)}</small>${matchOddsValue(m, s, oddsMove(m, s))}</div>`).join("")}
         </div>
       </div>
       <div class="pick">
-        ${m.pick ? `<div><span class="badge b-info">${esc(m.pick.market)}</span> ${oddsValue(m.iddaa_odds?.[m.pick.market], m.pick.suggested, oddsMove(m, m.pick.market))}</div><div class="muted" style="font-size:12px">olasılık ${pct(m.pick.p)}</div>` : ""}
-        <div style="margin-top:4px">${confBadge(m.confidence_label)}</div>
+        ${m.pick ? `<div><span class="badge b-info">${esc(m.pick.market)}</span> ${matchOddsValue(m, m.pick.market, oddsMove(m, m.pick.market))}</div><div class="muted" style="font-size:12px">olasılık ${pct(m.pick.p)}</div>` : (m.small_league ? `<div class="muted">Model önerisi yok</div>` : "")}
+        <div style="margin-top:4px">${m.small_league ? `<span class="badge b-info">Model verisi yok</span>` : confBadge(m.confidence_label)}</div>
         ${m.pick ? Slip.button(m, m.pick.market) : ""}
       </div>
     </div>`;
@@ -164,16 +178,20 @@ async function renderPicks() {
   const small = state.picksCategory === "small";
   $("#pickConfControl").classList.toggle("hidden", small);
   const list = await api(`/api/picks?category=${state.picksCategory}&days=${$("#pickDays").value}&min_conf=${$("#pickConf").value}`);
-  if (!list.length) { el.innerHTML = `<div class="card muted">${small ? "Seçim ölçütlerine uyan küçük lig önerisi yok." : "Öneri yok."}</div>`; return; }
+  if (!list.length) { el.innerHTML = `<div class="card muted">${small ? "Tam 1X2 bülteni ve en az %50 piyasa olasılığı olan küçük lig maçı yok." : "Öneri yok."}</div>`; return; }
   const footnote = small
-    ? "Küçük lig verileri ve kadro bilgileri sınırlıdır; bu öneriler düşük güvenlidir."
+    ? "Yalnızca tam İddaa 1X2 bülteninden hesaplanan piyasa olasılığı gösterilir. Bağımsız model tahmini, takım formu ve değer bahsi hesabı yoktur."
     : "Kombine kuponda olasılıklar çarpılır: 3 maçlık %70'lik kupon ≈ %34 tutar.";
   el.innerHTML = `<div class="card"><table>
-    <tr><th class="l">Maç</th><th>Lig</th><th>Tarih</th><th>Tahmin</th><th>Olasılık</th><th>Oranlar</th><th>Güven</th></tr>
-    ${list.slice(0, 40).map((p) => `<tr class="clickable" data-id="${esc(p.id)}" style="cursor:pointer">
+    <tr><th class="l">Maç</th><th>Lig</th><th>Tarih</th><th>${small ? "Pazar" : "Tahmin"}</th><th>Olasılık</th><th>Oranlar</th><th>${small ? "Model verisi" : "Güven"}</th></tr>
+    ${list.slice(0, 40).map((p) => `<tr class="clickable" data-match-id="${esc(p.id)}" data-competition-id="${esc(p.competition_id ?? "")}" role="button" tabindex="0" style="cursor:pointer">
       <td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td>
-      <td>${fmtDateTime(p.kickoff)}</td><td><span class="badge b-info">${esc(p.pick.market)}</span></td>
-      <td>${pct(p.pick.p)}</td><td>${oddsValue(p.iddaa_odds?.[p.pick.market], p.pick.suggested, oddsMove(p, p.pick.market))}</td><td>${confBadge(p.confidence_label)}</td></tr>`).join("")}
+      <td>${fmtDateTime(p.kickoff)}</td><td>${small ? `<span class="badge b-info">${esc(p.pick.market)}</span> <span class="muted">${esc(p.recommendation_label || "İddaa piyasa favorisi")}</span>` : `<span class="badge b-info">${esc(p.pick.market)}</span>`}</td>
+      <td>${pct(p.pick.p)}${small ? `<span class="muted"> piyasa</span>` : ""}</td>
+      <td>${small && p.recommendation_source === "iddaa_market"
+        ? `<b class="iddaa-odd">${esc(p.pick.odds ?? p.iddaa_odds?.[p.pick.market] ?? "-")}</b><span class="src src-iddaa">iddaa</span>`
+        : oddsValue(p.iddaa_odds?.[p.pick.market], p.pick.suggested, oddsMove(p, p.pick.market))}</td>
+      <td>${small ? `<span class="badge b-info">Model verisi yok</span>` : confBadge(p.confidence_label)}</td></tr>`).join("")}
   </table><p class="muted">${footnote}</p></div>`;
 }
 
@@ -262,8 +280,62 @@ function formList(f) {
   return f.map((x) => `<div><span class="formdots"><span class="f-${x.result}">${x.result}</span></span> ${x.venue} ${x.gf}-${x.ga} ${esc(x.opponent)} <span class="muted">${x.date}</span></div>`).join("");
 }
 
-async function openMatch(id) {
-  const m = await api(`/api/match/${id}`);
+function renderSmallMatch(m) {
+  const order = ["1", "X", "2", "1X", "12", "X2", "Ü1.5", "A1.5", "Ü2.5", "A2.5", "Ü3.5", "A3.5", "KG Var", "KG Yok"];
+  const odds = Object.entries(m.iddaa_odds || {}).sort((a, b) => {
+    const ai = order.indexOf(a[0]), bi = order.indexOf(b[0]);
+    return (ai < 0 ? order.length : ai) - (bi < 0 ? order.length : bi) || a[0].localeCompare(b[0]);
+  });
+  const marketRows = odds.map(([market, odd]) => {
+    const probability = m.markets?.[market]?.market_p;
+    return `<tr><td class="l"><b>${esc(market)}</b></td><td><b class="iddaa-odd">${Number(odd).toFixed(2)}</b></td>
+      <td>${Number.isFinite(probability) ? pct(probability) : `<span class="muted">kaynakta yok</span>`}</td></tr>`;
+  }).join("");
+  const updated = m.iddaa_updated_at ? fmtDateTime(m.iddaa_updated_at) : "bilinmiyor";
+  const sourceSummary = odds.length ? "Bültende gerçek event oranları var." : "Bu event için bültende oran verisi yok.";
+  $("#modalBody").innerHTML = `
+    <button class="close" onclick="closeModal()">×</button>
+    <div class="muted" style="text-align:center">${esc(m.league_name)} · ${fmtDay(m.kickoff)} ${fmtTime(m.kickoff)}</div>
+    <div class="mhead">
+      <div class="team"><h3>${esc(m.home)}</h3><div class="muted">Takım verisi yok</div></div>
+      <div><div class="vs">vs</div><div class="muted">başlama saati</div></div>
+      <div class="team"><h3>${esc(m.away)}</h3><div class="muted">Takım verisi yok</div></div>
+    </div>
+    <div class="card row-between">
+      <div><b>Model tahmini yok</b><p class="muted">${sourceSummary} Bu görünümde takım formu, puan durumu, xG, skor ve haber verisi sağlanmadığı için model tahmini sunulmuyor.</p></div>
+      <div><span class="badge b-info">İddaa bülteni</span></div>
+    </div>
+    <div class="card">
+      <h3>Gerçek iddaa bülten oranları</h3>
+      <p class="muted">Olasılık, yalnızca ilgili pazarın oran seti tam olduğunda marjı arındırılmış piyasa değeridir. Model oranı veya öneri üretilmez.</p>
+      ${odds.length ? `<table><tr><th class="l">Pazar</th><th>İddaa oranı</th><th>Piyasa olasılığı</th></tr>${marketRows}</table>` : `<p class="muted">Bu event için bültende oran verisi yok.</p>`}
+    </div>
+    <div class="card">
+      <h3>Kaynak ve maç bilgisi</h3>
+      <div class="kv">
+        <span>Event ID</span><b>${esc(m.iddaa_event_id || m.event_id || m.id)}</b>
+        <span>Competition ID</span><b>${m.competition_id == null ? "kaynakta yok" : esc(m.competition_id)}</b>
+        <span>Oran verisi güncellemesi</span><b>${esc(updated)}</b>
+      </div>
+      <p class="muted">Puan durumu, takım formu, xG, önceki skorlar ve sakatlık/haber alanları bu bülten kaynağında bulunmuyor.</p>
+    </div>`;
+}
+
+async function openMatch(id, competitionId = null) {
+  const req = ++state.matchReq;
+  $("#modal").classList.remove("hidden");
+  $("#modalBody").innerHTML = `<p class="muted">Maç detayı yükleniyor…</p>`;
+  let m;
+  try {
+    const query = competitionId ? `?competition_id=${encodeURIComponent(competitionId)}` : "";
+    m = await api(`/api/match/${encodeURIComponent(id)}${query}`);
+  } catch (e) {
+    if (req !== state.matchReq) return;
+    $("#modalBody").innerHTML = `<button class="close" onclick="closeModal()">×</button><p style="color:var(--bad)">Maç detayı yüklenemedi: ${esc(e.message)}</p>`;
+    return;
+  }
+  if (req !== state.matchReq) return;
+  if (m.small_league) { renderSmallMatch(m); return; }
   const f = m.factors, k = m.markets;
   const th = f.table.home, ta = f.table.away;
   const order = ["1", "X", "2", "1X", "12", "X2", "Ü1.5", "A1.5", "Ü2.5", "A2.5", "Ü3.5", "A3.5", "KG Var", "KG Yok", "Ev 0.5Ü", "Dep 0.5Ü"];
@@ -338,7 +410,7 @@ async function openMatch(id) {
   $("#modal").classList.remove("hidden");
   renderOddsHistory(m);
 }
-function closeModal() { $("#modal").classList.add("hidden"); }
+function closeModal() { state.matchReq += 1; $("#modal").classList.add("hidden"); }
 window.closeModal = closeModal;
 
 async function render() {
@@ -424,14 +496,8 @@ document.addEventListener("click", (e) => {
     document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + state.tab));
     render();
   }
-  const row = e.target.closest("[data-id]");
-  if (row && !e.target.closest(".modal")) openMatch(row.dataset.id);
-  if (e.target.id === "modal") closeModal();
 });
-document.addEventListener("keydown", (e) => {
-  if (e.key === "Escape") closeModal();
-  if ((e.key === "Enter" || e.key === " ") && e.target.matches(".match[data-id], .drop-row[data-id]")) openMatch(e.target.dataset.id);
-});
+MatchEvents.bind(document, openMatch, closeModal);
 $("#btnUpdate").addEventListener("click", async () => {
   const btn = $("#btnUpdate"), bar = $("#updateBar");
   btn.disabled = true;

@@ -202,16 +202,26 @@ class BuildCouponsTest(unittest.TestCase):
                 conn.execute("INSERT INTO iddaa_odds(event_id, market, odd) VALUES (?, ?, ?)",
                              (small_id, market, odd))
 
-        result = picks_endpoint(category="small", days=7, min_conf=0.0)
+        result = picks_endpoint(category="small", days=7, min_conf=0.99)
 
         self.assertEqual(len(result), 1)
         self.assertEqual(result[0]["id"], small_id)
         self.assertEqual(result[0]["country"], "İzlanda")
         self.assertEqual(result[0]["league_name"], "İzlanda · Premier League")
-        self.assertIn(result[0]["pick"]["market"], {"1", "1X"})
-        self.assertEqual(result[0]["confidence_label"], "Düşük")
+        self.assertEqual(result[0]["event_id"], small_id)
+        self.assertEqual(result[0]["iddaa_event_id"], small_id)
+        self.assertEqual(result[0]["competition_id"], 123)
+        self.assertEqual(result[0]["pick"]["market"], "1")
+        self.assertEqual(result[0]["pick"]["odds"], 1.3)
+        self.assertEqual(result[0]["pick"]["odds_source"], "iddaa")
+        self.assertEqual(result[0]["pick"]["probability_source"], "iddaa_market")
+        self.assertIsNone(result[0]["pick"]["suggested"])
+        self.assertEqual(result[0]["recommendation_source"], "iddaa_market")
+        self.assertEqual(result[0]["recommendation_label"], "İddaa piyasa favorisi")
+        self.assertIsNone(result[0]["confidence"])
+        self.assertEqual(result[0]["confidence_label"], "Düşük · model güveni yok")
+        self.assertFalse(result[0]["confidence_filter_applied"])
         self.assertTrue(result[0]["small_league"])
-        self.assertEqual(picks_endpoint(category="small", days=7, min_conf=0.45), [])
 
 
 if __name__ == "__main__":
