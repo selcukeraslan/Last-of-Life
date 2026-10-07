@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone, date
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query
-from fastapi.responses import FileResponse
+from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import odds_history, odds_log, pwa, updater
+from . import odds_history, odds_log, ops, pwa, updater
 from . import live
 from .api_odds_history import router as odds_history_router
 from .config import LEAGUES, MODEL, STATIC_DIR, league_aliases, league_slug, resolve_league
@@ -24,6 +24,7 @@ from .model.small_leagues import market_favorite
 from .value_bets import router as value_bets_router
 
 AUTO_UPDATE_HOURS = 6
+UPDATE_PER_MINUTE = 5
 
 
 @asynccontextmanager
@@ -38,6 +39,7 @@ async def lifespan(_app):
 
 
 app = FastAPI(title="İddia Oran Öneri", lifespan=lifespan)
+ops.install(app)
 app.include_router(pwa.router)  # /manifest.webmanifest, /sw.js
 app.include_router(odds_history_router)
 app.include_router(coupon_history_router)
@@ -67,6 +69,10 @@ def _attach_iddaa_odds(items: list[dict]) -> list[dict]:
 
 @app.get("/api/leagues")
 def leagues():
+    return ops.cached(("leagues",), _leagues)
+
+
+def _leagues():
     with session() as conn:
         rows = {r["league"]: dict(r) for r in conn.execute(
             "SELECT league, COUNT(*) total, SUM(completed) played FROM matches GROUP BY league")}
@@ -93,6 +99,10 @@ def live_scores():
 
 @app.get("/api/upcoming")
 def upcoming(league: str, days: int = Query(14, ge=1, le=30)):
+    return ops.cached(("upcoming", league, days), lambda: _upcoming(league, days))
+
+
+def _upcoming(league: str, days: int):
     if league.startswith("small:"):
         now = datetime.now(timezone.utc)
         with session() as conn:
@@ -158,6 +168,10 @@ def match(match_id: str, competition_id: Annotated[int | None, Query(ge=1)] = No
 @app.get("/api/standings")
 def standings(league: str):
     league = _check_league(league)
+    return ops.cached(("standings", league), lambda: _standings(league))
+
+
+def _standings(league: str):
     m = engine.get_model(league)
     elo = m.elo
     return [{**r, "elo": round(elo.get(r["team"]))} for r in m.table]
@@ -223,6 +237,12 @@ def _small_league_picks(days: int, min_conf: float = 0.0) -> list[dict]:
 @app.get("/api/picks")
 def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0, category: str = "main"):
     """Ana lig veya küçük lig önerilerini döndürür."""
+    if category not in ("main", "small"):
+        raise HTTPException(400, "Bilinmeyen öneri kategorisi")
+    return ops.cached(("picks", days, min_conf, category), lambda: _picks(days, min_conf, category))
+
+
+def _picks(days: int, min_conf: float, category: str):
     if category == "small":
         return _small_league_picks(days, min_conf)
     if category != "main":
@@ -249,16 +269,29 @@ def coupons(day: str | None = Query(None, description="YYYY-MM-DD (Türkiye saat
         target = date.fromisoformat(day) if day else datetime.now(TZ).date()
     except ValueError as exc:
         raise HTTPException(400, "Gün YYYY-AA-GG biçiminde olmalı") from exc
+    return ops.cached(("coupons", target), lambda: _coupons(target))
+
+
+def _coupons(target):
     result = build_coupons(target)
     coupon_history.freeze_if_today(result)  # günün kuponu ilk üretildiği haliyle kaydedilir
     return result
 
 
 @app.post("/api/update")
-def start_update():
+def start_update(request: Request):
     """Hızlı artımlı güncelleme (iddaa oranları + ESPN son günler), istek içinde senkron çalışır.
     Son güncellemeden sonra 10 dk bekleme ve kilit vardır; ağır tam güncelleme cron'dadır."""
+    if ops.rate_limited(f"update:{ops.client_ip(request)}", UPDATE_PER_MINUTE):
+        raise HTTPException(429, "Çok fazla istek; bir dakika sonra tekrar deneyin",
+                            headers={"Retry-After": "60"})
     return updater.run_quick_update()
+
+
+@app.get("/api/health")
+def health_check():
+    result = ops.health()
+    return JSONResponse(result, status_code=200 if result["ok"] else 503, headers={"Cache-Control": "no-store"})
 
 
 @app.get("/api/update/status")

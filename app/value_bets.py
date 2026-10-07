@@ -8,6 +8,7 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Query
 
 from .config import LEAGUES
+from . import ops
 from .db import get_meta, session
 from .model import engine
 from .model import extra_markets
@@ -118,4 +119,4 @@ def build_value_bets(days: int = DEFAULT_DAYS, min_prob: float = 0.0, min_ev: fl
 def value_bets(days: int = Query(DEFAULT_DAYS, ge=1, le=30),
                min_prob: float = Query(0.0, ge=0, le=1, description="Modelin min. olasılığı (0-1)"),
                min_ev: float = Query(0.0, ge=0, le=10, description="Min. EV (0.05 = %5)")):
-    return build_value_bets(days, min_prob, min_ev)
+    return ops.cached(("value", days, min_prob, min_ev), lambda: build_value_bets(days, min_prob, min_ev))

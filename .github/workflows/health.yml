@@ -1,0 +1,19 @@
+name: Sağlık kontrolü
+
+# 30 dakikada bir canlı /api/health kontrol edilir; başarısızsa workflow fail olur (GitHub bildirimi).
+on:
+  schedule:
+    - cron: "*/30 * * * *"
+  workflow_dispatch:
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: /api/health
+        run: |
+          curl -sS --retry 2 --retry-delay 10 --max-time 30 -o health.json -w "HTTP %{http_code}\n" \
+            https://iddia-oran.vercel.app/api/health || true
+          cat health.json
+          curl -sSf --max-time 30 https://iddia-oran.vercel.app/api/health > /dev/null
