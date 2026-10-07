@@ -33,14 +33,14 @@ async function renderModelReport() {
   if (!r.computed_at || !r.overall.n) { box.innerHTML = `<div class="card"><p class="muted">Karne henüz hazırlanmadı; veri güncellemesinden sonra burada görünecek.</p></div>`; return; }
   const o = r.overall, c = r.coupons;
   box.innerHTML = `
-    <div class="grid cols-3">
+    <div class="mr-kpis">
       <div class="card"><div class="muted">1X2 isabet</div><div class="ch-big">${mrPct(o.accuracy)}</div><div class="muted">${o.n.toLocaleString("tr-TR")} maç · ev sahibi baz ${mrPct(o.home_baseline)} (${mrDiff(o.vs_home)})</div></div>
       <div class="card"><div class="muted">Brier / Log-loss</div><div class="ch-big">${o.brier.toFixed(3)}</div><div class="muted">log-loss ${o.logloss.toFixed(3)} · rastgele baz 0.667 / 1.099</div></div>
       <div class="card"><div class="muted">Rastgeleye göre</div><div class="ch-big">${mrDiff(o.vs_random)}</div><div class="muted">rastgele tahmin %33,3</div></div>
     </div>
     <div class="card"><h3>Lig bazında</h3><div class="mr-scroll"><table><tr><th class="l">Lig</th><th>Maç</th><th>İsabet</th><th>Brier</th><th>Log-loss</th><th>Ev baz.</th><th>Fark</th><th>Rastgele fark</th></tr>
       ${r.leagues.map((l) => `<tr><td class="l">${esc(l.name)}</td><td>${l.n}</td><td>${mrPct(l.accuracy)}</td><td>${l.brier.toFixed(3)}</td><td>${l.logloss.toFixed(3)}</td><td>${mrPct(l.home_baseline)}</td><td>${mrDiff(l.vs_home)}</td><td>${mrDiff(l.vs_random)}</td></tr>`).join("")}</table></div></div>
-    <div class="grid cols-2">
+    <div class="grid2">
       <div class="card"><h3>Kalibrasyon</h3>${mrCalibrationSvg(r.calibration)}<p class="muted">Noktalar çapraza yakınsa olasılıklar güvenilir. %10'luk kovalar; nokta boyutu örnek sayısı.</p></div>
       <div class="card"><h3>Son 30 gün isabet</h3>${mrTrendSvg(r.trend)}<p class="muted">${r.trend.reduce((s, d) => s + d.n, 0)} maç</p></div>
     </div>
