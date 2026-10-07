@@ -22,6 +22,8 @@ BANKO_MIN_P = 0.75
 BANKO_MIN_ODDS = 1.15
 BANKO_MIN_TOTAL_P = 0.50
 BANKO_PICKS = (2, 3)
+BANKO_POOL = 14
+BANKO_ALTERNATIVES = 3
 
 SURPRISE_MIN_P = 0.20
 SURPRISE_MAX_P = 0.62
@@ -29,6 +31,7 @@ SURPRISE_MIN_ODDS = 1.55
 SURPRISE_MIN_TOTAL_ODDS = 15.0
 SURPRISE_PICKS = (3, 5)
 SURPRISE_POOL = 14  # kombinasyon aramasına giren en değerli aday sayısı
+SURPRISE_ALTERNATIVES = 3
 SURPRISE_MARKETS = {"X", "2", "Ü2.5", "Ü3.5", "KG Var", "A2.5"}
 
 
@@ -85,34 +88,98 @@ def select_banko(entries: list[tuple[dict, list[dict]]]) -> list[dict]:
     return picks
 
 
+def select_banko_alternatives(entries: list[tuple[dict, list[dict]]], limit: int = BANKO_ALTERNATIVES) -> list[list[dict]]:
+    """Uygun ana lig seçimlerinden, en iyi Banko kuponunu ilk sırada tutarak farklı alternatifler üret."""
+    primary = select_banko(entries)
+    if not primary or limit <= 0:
+        return []
+
+    pool, seen_matches = [], set()
+    for prediction, choices in entries:
+        if prediction.get("small_league") or str(prediction.get("league", "")).startswith("small:"):
+            continue
+        match_id = str(prediction.get("id", ""))
+        if not match_id or match_id in seen_matches:
+            continue
+        ok = [c for c in choices if c["p"] >= BANKO_MIN_P and c["odds"] >= BANKO_MIN_ODDS]
+        if ok:
+            pool.append((prediction, max(ok, key=lambda c: (c["p"], c["odds"]))))
+            seen_matches.add(match_id)
+    pool.sort(key=lambda x: (-x[1]["p"], -x[1]["odds"]))
+    pool = pool[:BANKO_POOL]
+
+    alternatives = [primary]
+    signatures = {frozenset((str(p["id"]), p["market"]) for p in primary)}
+    candidates = []
+    for size in range(BANKO_PICKS[0], BANKO_PICKS[1] + 1):
+        for combo in combinations(pool, size):
+            if math.prod(c["p"] for _, c in combo) < BANKO_MIN_TOTAL_P:
+                continue
+            picks = [_match_view(p, c) for p, c in combo]
+            signature = frozenset((str(p["id"]), p["market"]) for p in picks)
+            if signature in signatures:
+                continue
+            key = (round(math.prod(p["p"] for p in picks), 4), len(picks), math.prod(p["odds"] for p in picks))
+            candidates.append((key, picks, signature))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    for _, picks, signature in candidates:
+        if signature in signatures:
+            continue
+        alternatives.append(picks)
+        signatures.add(signature)
+        if len(alternatives) >= limit:
+            break
+    return alternatives
+
+
 def select_surprise(entries: list[tuple[dict, list[dict]]]) -> list[dict]:
     """3-5 farklı maç, toplam oran >= 15. Maç başı seçim EV'ye (p x oran - 1) göre; kuponda oran
     iddaa oranıysa gerçek, değilse Claude oranına göre EV'dir. En değerli adaylar arasından toplam
     oran >= 15 şartını sağlayan, tutma olasılığı en yüksek kombinasyon seçilir (eşitlikte birleşik EV)."""
-    pool = []
+    alternatives = select_surprise_alternatives(entries, limit=1)
+    return alternatives[0] if alternatives else []
+
+
+def select_surprise_alternatives(entries: list[tuple[dict, list[dict]]], limit: int = SURPRISE_ALTERNATIVES) -> list[list[dict]]:
+    """Tüm ana lig maçlarını ortak havuzda değerlendirip en iyi Sürpriz alternatiflerini üret."""
+    if limit <= 0:
+        return []
+    pool, seen_matches = [], set()
     for prediction, choices in entries:
         if prediction.get("small_league") or str(prediction.get("league", "")).startswith("small:"):
+            continue
+        match_id = str(prediction.get("id", ""))
+        if not match_id or match_id in seen_matches:
             continue
         ok = [dict(c, value=round(c["p"] * c["odds"] - 1, 4)) for c in choices
               if c["market"] in SURPRISE_MARKETS and SURPRISE_MIN_P <= c["p"] <= SURPRISE_MAX_P
               and c["odds"] >= SURPRISE_MIN_ODDS]
         if ok:
             pool.append((prediction, max(ok, key=lambda c: (c["value"], c["p"] * c["odds"] ** 0.35))))
+            seen_matches.add(match_id)
     pool.sort(key=lambda x: (x[1]["value"], x[1]["p"] * x[1]["odds"] ** 0.35), reverse=True)
     pool = pool[:SURPRISE_POOL]
 
-    best, best_key = None, None
+    candidates = []
     for size in range(SURPRISE_PICKS[0], SURPRISE_PICKS[1] + 1):
         for combo in combinations(pool, size):
             if math.prod(c["odds"] for _, c in combo) < SURPRISE_MIN_TOTAL_ODDS:
                 continue
             key = (round(math.prod(c["p"] for _, c in combo), 4),
                    math.prod(c["p"] * c["odds"] for _, c in combo))
-            if best_key is None or key > best_key:
-                best, best_key = combo, key
-    if best is None:
-        return []
-    return [_match_view(p, c) for p, c in sorted(best, key=lambda x: x[0]["kickoff"])]
+            picks = [_match_view(p, c) for p, c in sorted(combo, key=lambda x: x[0]["kickoff"])]
+            signature = frozenset((str(p["id"]), p["market"]) for p in picks)
+            candidates.append((key, picks, signature))
+    candidates.sort(key=lambda item: item[0], reverse=True)
+    alternatives, signatures = [], set()
+    for _, picks, signature in candidates:
+        if signature in signatures:
+            continue
+        alternatives.append(picks)
+        signatures.add(signature)
+        if len(alternatives) >= limit:
+            break
+    return alternatives
 
 
 def _day_entries(target: date) -> list[tuple[dict, list[dict]]]:
@@ -175,13 +242,20 @@ def build_coupons(target: date) -> dict:
         pick["league_name"] = grouped[pick["id"]]["league_name"]
         pick["country"] = grouped[pick["id"]]["country"]
         pick["country"] = grouped[pick["id"]]["country"]
+    banko_note = "Sadece kaybetmeyi göze alabileceğiniz tutarla oynayın."
+    surprise_note = "Sürpriz kupon: küçük miktar kullanın; garanti değildir."
+    banko_alternatives = [_coupon("banko", picks, banko_note)
+                          for picks in select_banko_alternatives(entries)]
+    surprise_alternatives = [_coupon("surprise", picks, surprise_note)
+                             for picks in select_surprise_alternatives(entries)]
     return {
         "date": target.isoformat(),
         "matches": len(entries),
-        "banko": _coupon("banko", select_banko(entries),
-                         "Sadece kaybetmeyi göze alabileceğiniz tutarla oynayın."),
-        "surprise": _coupon("surprise", select_surprise(entries),
-                            "Sürpriz kupon: küçük miktar kullanın; garanti değildir."),
+        # Kupon geçmişi ve Telegram mevcut tek-kupon alanlarını kullanmayı sürdürür.
+        "banko": banko_alternatives[0] if banko_alternatives else _coupon("banko", [], banko_note),
+        "surprise": surprise_alternatives[0] if surprise_alternatives else _coupon("surprise", [], surprise_note),
+        "banko_alternatives": banko_alternatives,
+        "surprise_alternatives": surprise_alternatives,
         "small_leagues": small_coupon,
         "rules": {"banko_min_probability": BANKO_MIN_P, "banko_min_total_probability": BANKO_MIN_TOTAL_P,
                   "banko_min_odds": BANKO_MIN_ODDS,

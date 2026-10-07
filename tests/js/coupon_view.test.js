@@ -1,0 +1,50 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const CouponView = require("../../static/coupon-view.js");
+
+const pick = (overrides = {}) => ({
+  home: "Ev <A>", away: "Dep B", league_name: "Ana Lig", kickoff: "2026-10-07T18:00:00Z",
+  market: "1", odds: 1.8, claude_odds: 1.7, odds_source: "iddaa", p: 0.72,
+  ...overrides,
+});
+const coupon = (type, overrides = {}) => ({
+  type, picks: [pick()], total_odds: 1.8, total_probability: 0.72, odds_source: "iddaa",
+  stake_note: "Bilgilendirme", ...overrides,
+});
+
+test("coupon card builds its rows and escapes match text", () => {
+  const html = CouponView.couponCard(coupon("banko"), "Banko Kuponu 1", "b-good");
+  assert.match(html, /&lt;A&gt;/);
+  assert.match(html, /Ana Lig/);
+  assert.match(html, /1\.8/);
+  assert.match(html, /72%/);
+  assert.doesNotMatch(html, /undefined|NaN/);
+});
+
+test("missing and partial coupon data renders a safe empty state", () => {
+  assert.doesNotThrow(() => CouponView.couponCard(null, "Banko", "b-good"));
+  const empty = CouponView.couponCard({ picks: [null, {}, { home: "Ev" }] }, "Banko", "b-good");
+  assert.match(empty, /Takım bilgisi yok/);
+  assert.match(empty, /Olasılık/);
+  assert.doesNotMatch(empty, /undefined|NaN/);
+  assert.match(CouponView.couponCard(null, "Banko", "b-good"), /uygun maç bulunamadı/);
+  assert.match(CouponView.couponCard({ picks: [{}], total_odds: null, total_probability: null }, "Banko", "b-good"), /Toplam oran:<\/b> - · <b>Toplam tutma:<\/b> -/);
+});
+
+test("coupon groups display multiple alternatives under their type", () => {
+  const html = CouponView.couponGroup({
+    banko_alternatives: [coupon("banko"), coupon("banko", { picks: [pick({ home: "İkinci" })] })],
+    surprise_alternatives: [coupon("surprise")],
+  }, "banko", "b-good");
+  assert.match(html, /Banko Kupon Alternatifleri/);
+  assert.match(html, /Banko Kuponu 1/);
+  assert.match(html, /Banko Kuponu 2/);
+  assert.doesNotMatch(html, /Sürpriz Kuponu/);
+});
+
+test("legacy single coupons and a missing response retain a safe rendering path", () => {
+  assert.equal(CouponView.alternatives({ banko: coupon("banko") }, "banko").length, 1);
+  assert.equal(CouponView.alternatives({ banko_alternatives: [], banko: coupon("banko") }, "banko").length, 1);
+  const group = CouponView.couponGroup(undefined, "surprise", "b-warn");
+  assert.match(group, /Sürpriz türünde uygun kupon bulunamadı/);
+});

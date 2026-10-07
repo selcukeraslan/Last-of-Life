@@ -92,6 +92,8 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
 .src { display: inline-block; margin-left: 4px; padding: 0 6px; border-radius: 999px; font-size: 10px; font-weight: 600; }
 .src-iddaa { background: rgba(34,197,94,.15); color: var(--good); }
 .src-claude { background: rgba(245,158,11,.15); color: var(--warn); }
+.coupon-group { margin: 18px 0; }
+.coupon-group > h3 { margin: 0 0 8px; }
 .coupon-card table { margin-top: 8px; }
 .coupon-total { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
 

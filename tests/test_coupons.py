@@ -10,7 +10,8 @@ from fastapi import HTTPException
 from app import db
 from app.main import coupons as coupons_endpoint
 from app.model import coupons as cp
-from app.model.coupons import _choices, _coupon, select_banko, select_surprise, select_small_league
+from app.model.coupons import (_choices, _coupon, select_banko, select_banko_alternatives,
+                               select_surprise, select_surprise_alternatives, select_small_league)
 
 
 def pred(mid, markets, kickoff="2026-10-17T14:00Z", league="eng.1"):
@@ -100,6 +101,34 @@ class SurpriseTest(unittest.TestCase):
         self.assertEqual(select_surprise(entries), [])  # "1" izinli değil, X p<0.20, 2 p>0.62
 
 
+class CouponAlternativesTest(unittest.TestCase):
+    def test_banko_alternatives_are_unique_and_span_main_leagues(self):
+        entries = [entry(i, {"1": (0.82 - i * 0.01, 1.35)}, league=league)
+                   for i, league in enumerate(("eng.1", "tur.1", "esp.1", "ger.1"), 1)]
+        small = entry(9, {"1": (0.95, 1.5)}, league="small:country:league")
+        small[0]["small_league"] = True
+        alternatives = select_banko_alternatives(entries + [small])
+        signatures = [frozenset(p["id"] for p in coupon) for coupon in alternatives]
+        self.assertGreaterEqual(len(alternatives), 2)
+        self.assertEqual(len(signatures), len(set(signatures)))
+        self.assertEqual({p["league"] for p in alternatives[0]}, {"eng.1", "tur.1", "esp.1"})
+        self.assertTrue(all(p["id"] != 9 for coupon in alternatives for p in coupon))
+        self.assertEqual(alternatives[0], select_banko(entries + [small]))
+
+    def test_surprise_alternatives_are_unique_and_exclude_small_leagues(self):
+        leagues = ("eng.1", "tur.1", "esp.1", "ger.1", "ita.1")
+        entries = [entry(i, {"X": (0.35, 3.1)}, league=league) for i, league in enumerate(leagues, 1)]
+        small = entry(9, {"X": (0.5, 5.0)}, league="small:country:league")
+        small[0]["small_league"] = True
+        alternatives = select_surprise_alternatives(entries + [small])
+        signatures = [frozenset(p["id"] for p in coupon) for coupon in alternatives]
+        self.assertEqual(len(alternatives), 3)
+        self.assertEqual(len(signatures), len(set(signatures)))
+        self.assertEqual({p["league"] for p in alternatives[0]}, {"eng.1", "tur.1", "esp.1"})
+        self.assertTrue(all(p["id"] != 9 for coupon in alternatives for p in coupon))
+        self.assertEqual(alternatives[0], select_surprise(entries + [small]))
+
+
 class SmallLeagueCouponTest(unittest.TestCase):
     def test_small_leagues_are_excluded_from_existing_coupons(self):
         entries = [entry(1, {"1": (0.90, 1.3)}), entry(2, {"1": (0.90, 1.3)}),
@@ -156,6 +185,30 @@ class BuildCouponsTest(unittest.TestCase):
         with patch.object(cp, "LEAGUES", {}):
             r = cp.build_coupons(date(2026, 1, 1))
         self.assertEqual((r["banko"]["picks"], r["surprise"]["picks"], r["matches"]), ([], [], 0))
+        self.assertEqual((r["banko_alternatives"], r["surprise_alternatives"]), ([], []))
+
+    def test_build_scans_main_leagues_together_and_keeps_legacy_coupon_fields(self):
+        target = (datetime.now(cp.TZ) + timedelta(days=2)).date()
+        kickoff = datetime.combine(target, datetime.min.time(), cp.TZ).replace(hour=18).isoformat()
+        leagues = {f"league.{i}": {"name": f"Liga {i}"} for i in range(1, 6)}
+        predictions = {league: [{**pred(i, {"1": (0.82 - i * 0.01, 1.35), "X": (0.35, 3.1)},
+                                                 kickoff=kickoff, league=league), "iddaa_odds": {}}]
+                       for i, league in enumerate(leagues, 1)}
+        fake_models = {league: type("M", (), {"upcoming_predictions": lambda self, days, p=items: p})()
+                       for league, items in predictions.items()}
+        with patch.object(cp, "LEAGUES", leagues), \
+             patch.object(cp.engine, "get_model", lambda league: fake_models[league]), \
+             patch.object(cp, "blend_predictions", lambda conn, items: items):
+            result = cp.build_coupons(target)
+
+        self.assertEqual(result["matches"], 5)
+        self.assertGreaterEqual(len(result["banko_alternatives"]), 2)
+        self.assertGreaterEqual(len(result["surprise_alternatives"]), 2)
+        self.assertEqual(result["banko"], result["banko_alternatives"][0])
+        self.assertEqual(result["surprise"], result["surprise_alternatives"][0])
+        self.assertTrue(all(c["type"] == "banko" for c in result["banko_alternatives"]))
+        self.assertTrue(all(c["type"] == "surprise" for c in result["surprise_alternatives"]))
+        self.assertEqual(result["small_leagues"]["picks"], [])
 
     def test_day_uses_istanbul_time_and_skips_started_matches(self):
         now = datetime.now(timezone.utc)
