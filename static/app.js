@@ -165,8 +165,8 @@ async function renderPicks() {
     : "Kombine kuponda olasılıklar çarpılır: 3 maçlık %70'lik kupon ≈ %34 tutar.";
   el.innerHTML = `<div class="card"><table>
     <tr><th class="l">Maç</th><th>Lig</th><th>Tarih</th><th>Tahmin</th><th>Olasılık</th><th>Oranlar</th><th>Güven</th></tr>
-    ${list.slice(0, 40).map((p) => `<tr class="clickable" data-id="${p.id}" style="cursor:pointer">
-      <td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.country ? `${p.country} · ` : "")}${esc(p.league_name)}</td>
+    ${list.slice(0, 40).map((p) => `<tr class="clickable" data-id="${esc(p.id)}" style="cursor:pointer">
+      <td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td>
       <td>${fmtDateTime(p.kickoff)}</td><td><span class="badge b-info">${esc(p.pick.market)}</span></td>
       <td>${pct(p.pick.p)}</td><td>${oddsValue(p.iddaa_odds?.[p.pick.market], p.pick.suggested, oddsMove(p, p.pick.market))}</td><td>${confBadge(p.confidence_label)}</td></tr>`).join("")}
   </table><p class="muted">${footnote}</p></div>`;

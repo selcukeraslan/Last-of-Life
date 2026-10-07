@@ -157,6 +157,16 @@ def standings(league: str):
     return [{**r, "elo": round(elo.get(r["team"]))} for r in m.table]
 
 
+def _small_league_name(country: str | None, league_name: str | None) -> str:
+    name = league_name or ""
+    if not country:
+        return name
+    prefix = f"{country} · "
+    if name.startswith(prefix):
+        return name
+    return f"{prefix}{name}" if name else country
+
+
 def _small_pick(prediction: dict) -> dict | None:
     choice = small_league_recommendation(prediction)
     if not choice:
@@ -193,7 +203,8 @@ def _small_league_picks(days: int, min_conf: float = 0.0) -> list[dict]:
         if not pick:
             continue
         picks.append({"id": prediction["id"], "league": prediction["league"],
-                      "league_name": prediction["league_name"], "country": prediction["country"],
+                      "league_name": _small_league_name(prediction.get("country"), prediction.get("league_name")),
+                      "country": prediction["country"],
                       "kickoff": prediction["kickoff"], "home": prediction["home"],
                       "away": prediction["away"], "pick": pick,
                       "confidence": prediction["confidence"],
