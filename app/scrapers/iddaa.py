@@ -222,6 +222,23 @@ def _market_odds(markets: list[dict]) -> dict[str, float]:
         elif key == (2, 101) and str(market.get("sov")) in {"1.5", "2.5", "3.5"}:
             line = str(market["sov"])
             mapped = {1: f"A{line}", 2: f"Ü{line}"}
+        elif key == (2, 88):
+            mapped = {1: "İY 1", 2: "İY X", 3: "İY 2"}
+        elif key == (2, 90):
+            mapped = {i: f"İY/MS {name}" for i, name in enumerate(
+                ("1/1", "1/X", "1/2", "X/1", "X/X", "X/2", "2/1", "2/X", "2/2"), 1)}
+        elif key == (2, 100) and market.get("sov") is not None:
+            line = str(market["sov"])
+            mapped = {1: f"Handikap {line} 1", 2: f"Handikap {line} X", 3: f"Handikap {line} 2"}
+        elif key == (2, 60) and str(market.get("sov")) in {"0.5", "1.5", "2.5", "3.5"}:
+            line = str(market["sov"])
+            mapped = {1: f"İY A{line}", 2: f"İY Ü{line}"}
+        elif key == (2, 48) and market.get("sov") is not None:
+            line = str(market["sov"])
+            mapped = {1: f"Korner A{line}", 2: f"Korner Ü{line}"}
+        elif key == (2, 658) and market.get("sov") is not None:
+            line = str(market["sov"])
+            mapped = {1: f"Kart A{line}", 2: f"Kart Ü{line}"}
         if not mapped:
             continue
         for outcome in outcomes:

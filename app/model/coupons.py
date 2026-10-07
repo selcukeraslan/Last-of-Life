@@ -35,7 +35,10 @@ SURPRISE_MARKETS = {"X", "2", "Ü2.5", "Ü3.5", "KG Var", "A2.5"}
 def _choices(prediction: dict, iddaa_odds: dict) -> list[dict]:
     """Bir maçın seçilebilir pazarları; oran = iddaa varsa iddaa, yoksa Claude oranı."""
     out = []
-    for market, item in prediction["markets"].items():
+    available = {**prediction.get("markets", {}), **prediction.get("extra_markets", {})}
+    for market, item in available.items():
+        if item.get("p") is None:  # korner/kart için geçmiş veri yok; oranı kupona model gibi sokma
+            continue
         claude = item.get("suggested")
         if not claude or claude < 1.01:
             continue

@@ -11,6 +11,7 @@ import math
 from ..config import MODEL
 from ..scrapers import iddaa
 from . import predict as P
+from . import extra_markets
 
 # Marjı temizlenen pazar grupları: grup adı -> pazarlar (olasılıkları toplamı 1)
 GROUPS = {
@@ -112,6 +113,9 @@ def blend_predictions(conn, items: list[dict]) -> list[dict]:
         odds = source["odds"] if source else {}
         blended = blend_prediction(item, odds) if "markets" in item else dict(item)
         blended["iddaa_odds"] = odds
+        if "lambda_home" in blended and "lambda_away" in blended:
+            blended["extra_markets"] = extra_markets.for_match(
+                blended["lambda_home"], blended["lambda_away"], odds)
         blended["iddaa_event_id"] = source["event_id"] if source else None
         blended["iddaa_updated_at"] = source["updated_at"] if source else None
         out.append(blended)

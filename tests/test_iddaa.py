@@ -58,6 +58,25 @@ class IddaaScraperTests(unittest.TestCase):
         self.assertEqual(matched["id"], "espn-1")
         self.assertGreater(score, 0.95)
 
+    def test_extra_bulletin_markets_use_verified_market_ids(self):
+        raw = {"i": 123, "ci": 584, "d": 1791220000, "hn": "Fenerbahçe", "an": "Beşiktaş", "m": [
+            {"t": 2, "st": 88, "s": 1, "o": [{"no": 1, "odd": 2.1}, {"no": 2, "odd": 2.8}, {"no": 3, "odd": 3.2}]},
+            {"t": 2, "st": 90, "s": 1, "o": [{"no": i, "odd": 2 + i} for i in range(1, 10)]},
+            {"t": 2, "st": 100, "s": 1, "sov": "-1", "o": [{"no": 1, "odd": 2.1}, {"no": 2, "odd": 3.0}, {"no": 3, "odd": 2.5}]},
+            {"t": 2, "st": 60, "s": 1, "sov": "1.5", "o": [{"no": 1, "odd": 1.8}, {"no": 2, "odd": 2.0}]},
+            {"t": 2, "st": 48, "s": 1, "sov": "9.5", "o": [{"no": 1, "odd": 1.8}, {"no": 2, "odd": 2.0}]},
+            {"t": 2, "st": 658, "s": 1, "sov": "4.5", "o": [{"no": 1, "odd": 1.8}, {"no": 2, "odd": 2.0}]},
+        ]}
+        self.assertEqual(parse_event(raw)["odds"], {
+            "İY 1": 2.1, "İY X": 2.8, "İY 2": 3.2,
+            **{f"İY/MS {a}/{b}": 2 + i for i, (a, b) in enumerate(
+                [(a, b) for a in ("1", "X", "2") for b in ("1", "X", "2")], 1)},
+            "Handikap -1 1": 2.1, "Handikap -1 X": 3.0, "Handikap -1 2": 2.5,
+            "İY A1.5": 1.8, "İY Ü1.5": 2.0,
+            "Korner A9.5": 1.8, "Korner Ü9.5": 2.0,
+            "Kart A4.5": 1.8, "Kart Ü4.5": 2.0,
+        })
+
 
 if __name__ == "__main__":
     unittest.main()

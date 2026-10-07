@@ -10,6 +10,7 @@ from fastapi import APIRouter, Query
 from .config import LEAGUES
 from .db import get_meta, session
 from .model import engine
+from .model import extra_markets
 from .scrapers import iddaa
 
 router = APIRouter()
@@ -19,6 +20,16 @@ DEFAULT_DAYS = 7
 
 def market_group(selection: str) -> str:
     """Seçimin ait olduğu iddaa pazarının Türkçe adı ("Ü2.5" -> "Alt/Üst 2.5")."""
+    if selection.startswith("İY/MS "):
+        return "İY/MS"
+    if selection.startswith("İY "):
+        return "İlk Yarı"
+    if selection.startswith("Handikap "):
+        return "Handikaplı Maç Sonucu"
+    if selection.startswith("Korner "):
+        return "Toplam Korner Alt/Üst"
+    if selection.startswith("Kart "):
+        return "Toplam Kart Alt/Üst"
     if selection in ("1", "X", "2"):
         return "Maç Sonucu"
     if selection in ("1X", "12", "X2"):
@@ -38,10 +49,13 @@ def collect(predictions: list[dict], odds_by_match: dict[str, dict],
     for pred in predictions:
         source = odds_by_match.get(str(pred["id"]))
         odds = (source or {}).get("odds") or {}
+        model_markets = dict(pred.get("markets") or {})
+        if "lambda_home" in pred and "lambda_away" in pred:
+            model_markets.update(extra_markets.for_match(pred["lambda_home"], pred["lambda_away"], odds))
         found = False
         for selection, odd in odds.items():
-            model = pred["markets"].get(selection)
-            if not model or not odd or odd <= 1:
+            model = model_markets.get(selection)
+            if not model or model.get("p") is None or not odd or odd <= 1:
                 continue
             found = True
             ev = model["p"] * odd - 1

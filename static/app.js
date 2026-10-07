@@ -195,6 +195,16 @@ async function openMatch(id) {
       <h4>En olası skorlar</h4>
       <div class="mk-grid">${m.scores.map((s) => `<div class="mk"><div class="k">${s.score}</div><div class="p">${pct(s.p)} · oran ${s.suggested}</div></div>`).join("")}</div>
     </div>
+    <div class="card">
+      <h3>Ek marketler</h3>
+      <p class="muted">İlk yarı olasılıkları skor matrisinden hesaplanır. Korner ve kart için model verisi yoktur.</p>
+      <div class="mk-grid">${Object.entries(m.extra_markets || {}).map(([key, item]) => `<div class="mk">
+        <div class="k">${esc(key)}</div>
+        <div class="p">${item.p == null ? "Model olasılığı: yok" : `Model olasılığı: ${pct(item.p)}`}</div>
+        <div class="market-odds"><b class="iddaa-odd">${m.iddaa_odds?.[key] ?? "-"}</b>
+          <span class="claude-odd">Claude oran: ${item.suggested ?? "yok"}</span></div>
+      </div>`).join("")}</div>
+    </div>
     <div id="oddsHistory"></div>
     <div class="grid2">
       <div class="card"><h3>Güç parametreleri</h3>
