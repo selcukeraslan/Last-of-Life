@@ -123,7 +123,7 @@ def select_banko_alternatives(entries: list[tuple[dict, list[dict]]], limit: int
             candidates.append((key, picks, signature))
     candidates.sort(key=lambda item: item[0], reverse=True)
     for _, picks, signature in candidates:
-        if signature in signatures:
+        if any(signature <= chosen or chosen <= signature for chosen in signatures):
             continue
         alternatives.append(picks)
         signatures.add(signature)

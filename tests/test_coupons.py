@@ -111,6 +111,9 @@ class CouponAlternativesTest(unittest.TestCase):
         signatures = [frozenset(p["id"] for p in coupon) for coupon in alternatives]
         self.assertGreaterEqual(len(alternatives), 2)
         self.assertEqual(len(signatures), len(set(signatures)))
+        for index, signature in enumerate(signatures):
+            for other in signatures[index + 1:]:
+                self.assertFalse(signature <= other or other <= signature)
         self.assertEqual({p["league"] for p in alternatives[0]}, {"eng.1", "tur.1", "esp.1"})
         self.assertTrue(all(p["id"] != 9 for coupon in alternatives for p in coupon))
         self.assertEqual(alternatives[0], select_banko(entries + [small]))
