@@ -75,6 +75,7 @@ async function run(name, viewport) {
     await check();
   });
   await tab("coupon-history");
+  await tab("report");
   await tab("value");
   await tryDo("value filters", async () => {
     await page.selectOption("#valueDays", { index: 0 }).catch(() => {});
