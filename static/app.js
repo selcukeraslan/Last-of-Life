@@ -7,7 +7,8 @@ const api = async (url, opts) => {
   return r.json();
 };
 
-const state = { league: localStorage.getItem("league") || "tur.1", tab: "matches", leagues: [], model: {}, couponDate: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), couponReq: 0, live: new Map() };
+const savedLeague = localStorage.getItem("league") || "tur.1";
+const state = { league: savedLeague, tab: "matches", leagues: [], model: {}, smallLeaguesOpen: savedLeague.startsWith("small:"), picksCategory: "main", couponDate: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), couponReq: 0, live: new Map() };
 
 function selectionResult(market, h, a, state) {
   if (state === "post") return selectionWins(market, h, a) ? "tuttu" : "yattı";
@@ -84,6 +85,26 @@ function oddsValue(iddaa, claude, move = "") {
   return `<b class="iddaa-odd">${iddaa ?? "-"}</b><span class="claude-odd">Claude oran: ${claude ?? "-"}</span>${move}`;
 }
 
+function renderLeagueChips() {
+  const main = state.leagues.map((l) =>
+    `<button type="button" class="chip ${l.id === state.league ? "active" : ""}" data-league="${esc(l.id)}">${esc(l.name)} <span class="muted">${l.played || 0}</span></button>`).join("");
+  const byName = new Map();
+  for (const league of state.smallLeagues || []) {
+    const name = league.name || "Diğer";
+    if (!byName.has(name)) byName.set(name, []);
+    byName.get(name).push(league);
+  }
+  const groups = [...byName.entries()].sort(([a], [b]) => a.localeCompare(b, "tr"));
+  const smallOptions = groups.map(([name, leagues]) => `<div class="small-league-name-group">
+    <b>${esc(name)}</b><div class="small-league-countries">${leagues.sort((a, b) => (a.country || "").localeCompare(b.country || "", "tr")).map((l) =>
+      `<button type="button" class="chip small-league-chip ${l.id === state.league ? "active" : ""}" data-league="${esc(l.id)}" aria-label="${esc(`${l.country || "Ülke belirtilmemiş"} · ${name}`)}" title="${esc(`${l.country || "Ülke belirtilmemiş"} · ${name}`)}">${esc(l.country || "Ülke belirtilmemiş")}</button>`).join("")}</div>
+  </div>`).join("");
+  const activeSmall = state.league.startsWith("small:");
+  $("#leagueChips").innerHTML = `<div class="league-group main-league-group"><b>Ana Ligler</b>${main}</div>` +
+    (groups.length ? `<div class="league-picker"><button type="button" class="chip small-leagues-toggle ${activeSmall ? "active" : ""}" data-small-leagues-toggle aria-expanded="${state.smallLeaguesOpen}" aria-controls="smallLeagueOptions">Küçük Ligler <span class="muted">${state.smallLeagues.length}</span></button>
+      <div id="smallLeagueOptions" class="small-league-options ${state.smallLeaguesOpen ? "" : "hidden"}">${smallOptions}</div></div>` : "");
+}
+
 async function loadLeagues() {
   const d = await api("/api/leagues");
   state.leagues = d.leagues;
@@ -93,10 +114,7 @@ async function loadLeagues() {
   showLastUpdate();
   $("#marginPct").textContent = Math.round(d.model.margin * 100);
   $("#params").innerHTML = `<table>${Object.entries(d.model).map(([k, v]) => `<tr><td class="l"><code>${k}</code></td><td>${v}</td></tr>`).join("")}</table>`;
-  $("#leagueChips").innerHTML = `<div class="league-group"><b>Ana Ligler</b>${d.leagues.map((l) =>
-    `<button class="chip ${l.id === state.league ? "active" : ""}" data-league="${l.id}">${esc(l.name)} <span class="muted">${l.played || 0}</span></button>`).join("")}</div>` +
-    (state.smallLeagues.length ? `<div class="league-group"><b>Küçük Ligler</b>${state.smallLeagues.map((l) =>
-      `<button class="chip ${l.id === state.league ? "active" : ""}" data-league="${esc(l.id)}">${esc(l.country)} · ${esc(l.name)}</button>`).join("")}</div>` : "");
+  renderLeagueChips();
 }
 
 async function renderMatches() {
@@ -138,15 +156,20 @@ async function renderMatches() {
 async function renderPicks() {
   const el = $("#picks");
   el.innerHTML = `<p class="muted">Yükleniyor…</p>`;
-  const list = await api(`/api/picks?days=${$("#pickDays").value}&min_conf=${$("#pickConf").value}`);
-  if (!list.length) { el.innerHTML = `<div class="card muted">Öneri yok.</div>`; return; }
+  const small = state.picksCategory === "small";
+  $("#pickConfControl").classList.toggle("hidden", small);
+  const list = await api(`/api/picks?category=${state.picksCategory}&days=${$("#pickDays").value}&min_conf=${$("#pickConf").value}`);
+  if (!list.length) { el.innerHTML = `<div class="card muted">${small ? "Seçim ölçütlerine uyan küçük lig önerisi yok." : "Öneri yok."}</div>`; return; }
+  const footnote = small
+    ? "Küçük lig verileri ve kadro bilgileri sınırlıdır; bu öneriler düşük güvenlidir."
+    : "Kombine kuponda olasılıklar çarpılır: 3 maçlık %70'lik kupon ≈ %34 tutar.";
   el.innerHTML = `<div class="card"><table>
     <tr><th class="l">Maç</th><th>Lig</th><th>Tarih</th><th>Tahmin</th><th>Olasılık</th><th>Oranlar</th><th>Güven</th></tr>
-    ${list.slice(0, 40).map((p) => `<tr class="clickable" data-id="${p.id}" style="cursor:pointer">
+    ${list.slice(0, 40).map((p) => `<tr class="clickable" data-id="${esc(p.id)}" style="cursor:pointer">
       <td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name)}</td>
       <td>${fmtDateTime(p.kickoff)}</td><td><span class="badge b-info">${esc(p.pick.market)}</span></td>
       <td>${pct(p.pick.p)}</td><td>${oddsValue(p.iddaa_odds?.[p.pick.market], p.pick.suggested, oddsMove(p, p.pick.market))}</td><td>${confBadge(p.confidence_label)}</td></tr>`).join("")}
-  </table><p class="muted">Kombine kuponda olasılıklar çarpılır: 3 maçlık %70'lik kupon ≈ %34 tutar.</p></div>`;
+  </table><p class="muted">${footnote}</p></div>`;
 }
 
 function couponOdds(p) {
@@ -346,19 +369,43 @@ async function pollUpdate() {
   }
 }
 
+$("#pickCategories").addEventListener("click", (e) => {
+  const picksCategory = e.target.closest("[data-picks-category]");
+  if (picksCategory) {
+    state.picksCategory = picksCategory.dataset.picksCategory;
+    document.querySelectorAll("[data-picks-category]").forEach((button) => {
+      const active = button === picksCategory;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+    });
+    $("#pickConfControl").classList.toggle("hidden", state.picksCategory === "small");
+    renderPicks();
+  }
+});
+
+$("#leagueChips").addEventListener("click", (e) => {
+  const smallToggle = e.target.closest("[data-small-leagues-toggle]");
+  if (smallToggle) {
+    state.smallLeaguesOpen = !state.smallLeaguesOpen;
+    renderLeagueChips();
+    return;
+  }
+  const chip = e.target.closest(".chip[data-league]");
+  if (chip) {
+    state.league = chip.dataset.league;
+    state.smallLeaguesOpen = state.league.startsWith("small:");
+    localStorage.setItem("league", state.league);
+    renderLeagueChips();
+    render();
+  }
+});
+
 document.addEventListener("click", (e) => {
   const tab = e.target.closest(".tabs button");
   if (tab) {
     document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === tab));
     state.tab = tab.dataset.tab;
     document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + state.tab));
-    render();
-  }
-  const chip = e.target.closest(".chip");
-  if (chip) {
-    state.league = chip.dataset.league;
-    localStorage.setItem("league", state.league);
-    document.querySelectorAll(".chip").forEach((c) => c.classList.toggle("active", c === chip));
     render();
   }
   const row = e.target.closest("[data-id]");
