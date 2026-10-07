@@ -15,6 +15,18 @@ class ExtraMarketsTest(unittest.TestCase):
                                    for b in ("1", "X", "2")), 1, places=3)
         self.assertAlmostEqual(sum(markets[f"Handikap -1 {r}"]["p"] for r in ("1", "X", "2")), 1, places=3)
         self.assertAlmostEqual(markets["İY A1.5"]["p"] + markets["İY Ü1.5"]["p"], 1, places=3)
+        integer_line = for_match(1.4, 1.0, {"İY A1": 1.9, "İY Ü1": 1.9})
+        self.assertLess(integer_line["İY A1"]["p"] + integer_line["İY Ü1"]["p"], 1)
+        self.assertGreater(integer_line["İY A1"]["p"] + integer_line["İY Ü1"]["p"], 0.5)
+
+    def test_negative_handicap_is_applied_to_away_team(self):
+        markets = for_match(2.0, 0.5, {"Handikap -1 1": 1.9,
+                                       "Handikap -1 X": 1.9,
+                                       "Handikap -1 2": 1.9})
+        # Away -1 makes the adjusted score (home, away - 1).
+        # Home wins whenever the unadjusted score is level or a home win.
+        self.assertGreater(markets["Handikap -1 1"]["p"], 0.7)
+        self.assertLess(markets["Handikap -1 2"]["p"], 0.1)
 
     def test_corner_and_card_quotes_have_no_model_probability(self):
         markets = for_match(1.4, 1.0, {"Korner A9.5": 1.9, "Kart Ü4.5": 2.1})

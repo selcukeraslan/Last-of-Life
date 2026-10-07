@@ -46,6 +46,7 @@ def for_match(lambda_home: float, lambda_away: float, iddaa_odds: dict | None = 
             half_goals = hi + ai
             for line in half_totals:
                 threshold = float(line)
+                # Asian integer lines push; exclude exact-line mass from both sides.
                 result[f"İY A{line}"] += ph * (half_goals < threshold)
                 result[f"İY Ü{line}"] += ph * (half_goals > threshold)
             for hj, row2 in enumerate(second):
@@ -54,7 +55,9 @@ def for_match(lambda_home: float, lambda_away: float, iddaa_odds: dict | None = 
                     full_result = _result(hi + hj, ai + aj)
                     result[f"İY/MS {half_result}/{full_result}"] += probability
                     for line in handis:
-                        handicap_result = _result(hi + hj + float(line), ai + aj)
+                        # iddaa handicap is applied to the away team: -1 means
+                        # the away side starts one goal behind.
+                        handicap_result = _result(hi + hj, ai + aj + float(line))
                         result[f"Handikap {line} {handicap_result}"] += probability
 
     out = {key: _out(probability) for key, probability in result.items()}
