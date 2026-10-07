@@ -195,29 +195,19 @@ async function renderPicks() {
   </table><p class="muted">${footnote}</p></div>`;
 }
 
-function couponOdds(p) {
-  const claude = `Claude oran: ${p.claude_odds}`;
-  return p.odds_source === "iddaa"
-    ? `<b class="iddaa-odd">${p.odds}</b><span class="src src-iddaa">iddaa</span><span class="claude-odd">${claude}</span>`
-    : `<b class="iddaa-odd">${p.odds}</b><span class="src src-claude">Claude oran</span><span class="claude-odd">iddaa oranı yok</span>`;
-}
-function couponSource(c) {
-  if (!c.picks?.length) return "";
-  if (c.odds_source === "iddaa") return `<span class="badge b-info">oranlar: iddaa</span>`;
-  if (c.odds_source === "claude") return `<span class="badge b-warn">oranlar: Claude oran</span>`;
-  return `<span class="badge b-info">oranlar: ${c.iddaa_picks ?? 0}/${c.picks.length} iddaa, kalanı Claude oran</span>`;
-}
-function couponCard(c, title, cls) {
-  c = { ...c, picks: c?.picks || [] };
-  return `<div class="card coupon-card"><div class="row-between"><h3>${title}</h3><span>${couponSource(c)} <span class="badge ${cls}">${c.picks.length} maç</span></span></div><table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Olasılık</th></tr>${rows}</table><div class="coupon-total"><b>Toplam oran:</b> ${c.total_odds ?? "-"} · <b>Toplam tutma:</b> ${pct(c.total_probability)}<br><span class="muted">${esc(c.stake_note)}</span></div></div>`;
-}
-
 async function renderCoupons() {
   const el = $("#coupons"), req = ++state.couponReq;
   el.innerHTML = `<p class="muted">Kuponlar hesaplanıyor…</p>`;
   const d = await api(`/api/coupons?day=${state.couponDate}`);
   if (req !== state.couponReq) return; // daha yeni bir gün seçildi
-  el.innerHTML = `<p class="muted">${fmtDay(d.date + "T12:00:00Z")} · ana ligler: ${d.matches} maç</p>` + couponCard(d.banko, "Banko Kupon", "b-good") + couponCard(d.surprise, "Sürpriz Kupon", "b-warn") + couponCard(d.small_leagues, "Küçük Ligler Kuponu", "b-warn");
+  const data = d && typeof d === "object" ? d : {};
+  const dateText = data.date && !Number.isNaN(new Date(`${data.date}T12:00:00Z`).getTime())
+    ? fmtDay(`${data.date}T12:00:00Z`) : "Gün bilgisi yok";
+  const matches = Number.isFinite(Number(data.matches)) ? Number(data.matches) : 0;
+  el.innerHTML = `<p class="muted">${esc(dateText)} · ana ligler: ${matches} maç</p>` +
+    CouponView.couponGroup(data, "banko", "b-good") +
+    CouponView.couponGroup(data, "surprise", "b-warn") +
+    CouponView.couponCard(data.small_leagues, "Küçük Ligler Kuponu", "b-warn");
 }
 
 async function renderTable() {
