@@ -68,6 +68,7 @@ MODEL = {
     "news_coef": 0.08,  # haber skoru farkının log(λ) etkisi
     "rest_coef": 0.03,  # yorgunluk (<4 gün dinlenme) cezası
     "dc_rho": -0.06,  # Dixon-Coles düşük skor düzeltmesi
+    "first_half_goal_share": 0.45,  # toplam xG'nin ilk yarıya ayrılan payı
     "margin": 0.05,  # önerilen orana eklenen kâr marjı (%5)
     # iddaa.com oranlarından marjı temizlenmiş olasılıkların harmanlama ağırlığı: 0 = yalnız model,
     # 1 = yalnız piyasa. Oran yoksa model olasılığı aynen kalır. Ağırlığı Model sekmesindeki
