@@ -181,3 +181,9 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
 
 /* Değerli Oranlar sekmesi */
 .value-table .ev-pos { color: var(--good); }
+
+/* Model Karnesi */
+.mr-chart { width: 100%; max-width: 340px; display: block; margin: 0 auto; }
+.mr-scroll { overflow-x: auto; }
+.mr-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
+@media (max-width: 700px) { .mr-kpis { grid-template-columns: 1fr; } }
