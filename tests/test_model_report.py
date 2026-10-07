@@ -28,6 +28,17 @@ class ReportTest(unittest.TestCase):
         t = R.trend([s("2025-12-01", [1, 0, 0], 0), s("2026-01-20", [1, 0, 0], 0)], now)
         self.assertEqual([d["day"] for d in t], ["2026-01-20"])
 
+    def test_league_samples(self):
+        done = [{"id": str(i), "home": f"H{i % 4}", "away": f"H{(i + 1) % 4}", "home_id": None, "away_id": None,
+                 "kickoff": f"2026-01-{1 + i % 28:02d}T12:00Z", "ts": datetime(2026, 1, 1 + i % 28, 12, tzinfo=timezone.utc),
+                 "home_goals": i % 3, "away_goals": (i + 1) % 2, "completed": 1} for i in range(14)]
+        self.assertEqual(R.league_samples(done, 20), [])
+        out = R.league_samples(done, 10)
+        self.assertEqual(len(out), 4)
+        for x in out:
+            self.assertAlmostEqual(sum(x["probs"]), 1.0, places=1)
+            self.assertIn(x["actual"], (0, 1, 2))
+
     def test_empty(self):
         self.assertEqual(R.metrics([]), {"n": 0})
 

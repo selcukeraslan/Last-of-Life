@@ -16,6 +16,7 @@ from .ratings import Elo, Strengths
 META_KEY = "model_report"
 BUCKETS = 10
 TREND_DAYS = 30
+MAX_AGE_HOURS = 12
 
 
 def _outcome(m) -> int:
@@ -118,7 +119,18 @@ def cached() -> dict | None:
     return json.loads(v) if v else None
 
 
+def is_fresh(max_age_hours: float = MAX_AGE_HOURS) -> bool:
+    r = cached()
+    if not r or not r.get("computed_at"):
+        return False
+    return datetime.now(timezone.utc) - datetime.fromisoformat(r["computed_at"]) < timedelta(hours=max_age_hours)
+
+
 if __name__ == "__main__":
+    import sys
     init_db()
+    if "--force" not in sys.argv and is_fresh():
+        print("model report güncel, atlandı")
+        sys.exit(0)
     r = refresh()
     print(f"model report: {r['overall'].get('n', 0)} maç, {len(r['leagues'])} lig")
