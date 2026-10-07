@@ -15,6 +15,7 @@ from .api_odds_history import router as odds_history_router
 from .config import LEAGUES, MODEL, STATIC_DIR, league_aliases, league_slug, resolve_league
 from .db import get_meta, init_db, is_postgres, session
 from .coupon_history_api import router as coupon_history_router
+from .model_report_api import router as model_report_router
 from .model import coupon_history, engine
 from .model.blend import blend_predictions
 from .model.coupons import TZ, build_coupons
@@ -40,6 +41,7 @@ app = FastAPI(title="İddia Oran Öneri", lifespan=lifespan)
 app.include_router(pwa.router)  # /manifest.webmanifest, /sw.js
 app.include_router(odds_history_router)
 app.include_router(coupon_history_router)
+app.include_router(model_report_router)
 app.include_router(value_bets_router)
 
 

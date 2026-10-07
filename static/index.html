@@ -29,6 +29,7 @@
       <button data-tab="slip">Kuponum <span id="slipCount" class="badge-count hidden">0</span></button>
       <button data-tab="table">Puan Durumu</button>
       <button data-tab="model">Model</button>
+      <button data-tab="report">Model Karnesi</button>
     </nav>
     <div class="update">
       <span id="lastUpdate" class="muted"></span>
@@ -60,6 +61,10 @@
     <section id="tab-coupons" class="tab hidden">
       <div class="toolbar coupon-toolbar"><button id="couponPrev" class="btn">‹ Önceki gün</button><label>Gün: <input id="couponDate" type="date"></label><button id="couponNext" class="btn">Sonraki gün ›</button></div>
       <div id="coupons"></div>
+    </section>
+
+    <section id="tab-report" class="tab hidden">
+      <div id="modelReport"></div>
     </section>
 
     <section id="tab-coupon-history" class="tab hidden">
@@ -125,5 +130,6 @@
   <script src="/static/pwa.js"></script>
   <script src="/static/coupon-history.js"></script>
   <script src="/static/value.js"></script>
+  <script src="/static/model-report.js"></script>
 </body>
 </html>

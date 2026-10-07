@@ -31,3 +31,8 @@ jobs:
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python -m app.updater ${{ github.event_name == 'workflow_dispatch' && !inputs.news && '--no-news' || '' }}
+      - name: Model karnesini yenile
+        continue-on-error: true
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: python -m app.model.report
