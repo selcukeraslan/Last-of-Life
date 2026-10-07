@@ -132,11 +132,12 @@ class SmallLeagueCouponTest(unittest.TestCase):
     def test_small_coupon_has_two_to_four_low_confidence_selections(self):
         entries = []
         for i in range(1, 6):
-            p = pred(i, {"1": (0.66, 1.5), "1X": (0.82, 1.2)})
+            p = pred(i, {"1": (0.66, 1.5), "1X": (0.82, 1.2)}, league=f"small:country:league")
             p["small_league"] = True
-            p["league_name"] = "Islands · Premier League"
+            p["league_name"] = "Premier League"
             entries.append((p, _choices(p, {"1": 1.55})))
-        picks = select_small_league(entries)
+        with patch.object(cp, "LEAGUES", {}):
+            picks = select_small_league(entries)
         self.assertEqual(len(picks), 4)
         self.assertTrue(all(p["small_league"] and p["confidence"] == "Düşük" for p in picks))
 

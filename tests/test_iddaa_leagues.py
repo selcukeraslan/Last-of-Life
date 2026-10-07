@@ -37,6 +37,12 @@ class NewLeagueTests(unittest.TestCase):
         self.assertEqual(parsed["league"], small_league_key("Faroe Islands", "Premier League"))
         self.assertEqual((parsed["country"], parsed["league_name"]), ("Faroe Islands", "Premier League"))
 
+    def test_live_event_metadata_can_be_resolved_from_competition_catalog(self):
+        parsed = parse_event({"i": 5, "ci": 16184, "d": 1791220000, "hn": "A", "an": "B",
+                              "countryName": "IR", "competitionName": "İran Pro Ligi"})
+        self.assertEqual(parsed["league"], "small:ir:iran-pro-ligi")
+        self.assertEqual((parsed["country"], parsed["league_name"]), ("IR", "İran Pro Ligi"))
+
     def test_event_without_competition_name_keeps_unique_competition_id(self):
         parsed = parse_event({"i": 4, "ci": 98765, "d": 1791220000, "hn": "A", "an": "B"})
         self.assertIn("98765", parsed["league"])

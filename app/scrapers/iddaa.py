@@ -19,6 +19,7 @@ from .. import odds_history
 from ..db import set_meta
 
 EVENTS_URL = "https://sportsbookv2.iddaa.com/sportsbook/events?st=1&type=0&version=0"
+COMPETITIONS_URL = "https://sportsbookv2.iddaa.com/sportsbook/competitions"
 
 # iddaa competition id -> ESPN lig anahtarı. Kimlikler /sportsbook/competitions
 # yanıtındaki kalıcı futbol organizasyonu kimlikleridir.
@@ -226,6 +227,18 @@ def fetch_json(url: str = EVENTS_URL, timeout: int = 25, retries: int = 3) -> di
     raise RuntimeError(f"iddaa bülteni alınamadı: {last_error}")
 
 
+def fetch_competitions(timeout: int = 10) -> dict[int, dict]:
+    """Load the public catalog used by the events API to resolve competition labels."""
+    req = urllib.request.Request(COMPETITIONS_URL, headers={
+        "User-Agent": USER_AGENT, "Accept": "application/json",
+        "Origin": "https://www.iddaa.com", "Referer": "https://www.iddaa.com/program/futbol",
+    })
+    with urllib.request.urlopen(req, timeout=timeout) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    rows = payload.get("data", []) if payload.get("isSuccess") else []
+    return {int(row["i"]): row for row in rows if row.get("i") is not None}
+
+
 def _market_odds(markets: list[dict]) -> dict[str, float]:
     odds: dict[str, float] = {}
     for market in markets or []:
@@ -322,6 +335,15 @@ def match_event(event: dict, fixtures: list[dict]) -> tuple[dict | None, float]:
 def sync_odds(conn, progress=None, retries: int = 3) -> dict:
     payload = fetch_json(retries=retries)
     raw_events = payload["data"].get("events", [])
+    try:
+        catalog = fetch_competitions()
+    except Exception:
+        catalog = {}
+    for raw in raw_events:
+        competition = catalog.get(int(raw["ci"])) if raw.get("ci") is not None else None
+        if competition:
+            raw.setdefault("competitionName", competition.get("n") or competition.get("sn"))
+            raw.setdefault("countryName", competition.get("cid"))
     events = [parsed for raw in raw_events if (parsed := parse_event(raw))]
     fixtures = [dict(row) for row in conn.execute(
         "SELECT id, league, kickoff, home, away FROM matches WHERE completed=0"

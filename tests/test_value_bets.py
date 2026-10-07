@@ -48,13 +48,6 @@ class CollectTest(unittest.TestCase):
         small = {"id": "s", "league": "small:aland:premier", "small_league": True,
                  "kickoff": "2026-10-10T10:00:00+00:00", "home": "A", "away": "B",
                  "markets": {"1": {"p": 0.9}}}
-        r = collect([small], {"s": odds(**{"1": 4.0})})
-        self.assertEqual(r["items"], [])
-
-    def test_small_league_predictions_are_excluded(self):
-        small = {"id": "s", "league": "small:aland:premier", "small_league": True,
-                 "kickoff": "2026-10-10T10:00:00+00:00", "home": "A", "away": "B",
-                 "markets": {"1": {"p": 0.9}}}
         r = collect([small], {"s": {"updated_at": "t", "odds": {"1": 4.0}}})
         self.assertEqual(r["items"], [])
 
