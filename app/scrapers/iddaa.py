@@ -286,10 +286,11 @@ def _market_odds(markets: list[dict]) -> dict[str, float]:
 def parse_event(raw: dict) -> dict | None:
     if not raw.get("d") or not raw.get("hn") or not raw.get("an"):
         return None  # takım adı olmayan kayıtlar maç değil (turnuva/şampiyon bahsi)
-    country, league_name = event_labels(raw)
-    competition_id = raw.get("ci")
-    if competition_id is None:
+    try:
+        competition_id = int(raw.get("ci"))
+    except (TypeError, ValueError):
         return None
+    country, league_name = event_labels(raw)
     league = COMPETITION_IDS.get(competition_id) or small_league_key(country, league_name)
     return {
         "id": str(raw["i"]),

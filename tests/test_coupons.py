@@ -8,10 +8,11 @@ from unittest.mock import patch
 from fastapi import HTTPException
 
 from app import db
-from app.main import coupons as coupons_endpoint
+from app.main import coupons as coupons_endpoint, picks as picks_endpoint
 from app.model import coupons as cp
 from app.model.coupons import (_choices, _coupon, select_banko, select_banko_alternatives,
-                               select_surprise, select_surprise_alternatives, select_small_league)
+                               select_surprise, select_surprise_alternatives, select_small_league,
+                               small_league_recommendation)
 
 
 def pred(mid, markets, kickoff="2026-10-17T14:00Z", league="eng.1"):
@@ -149,6 +150,17 @@ class SmallLeagueCouponTest(unittest.TestCase):
         self.assertEqual(select_surprise(entries), [])
         self.assertEqual(len(select_small_league(entries)), 4)
 
+    def test_small_recommendation_uses_existing_probability_and_market_rules(self):
+        p, choices = entry(1, {"1": (0.64, 1.55), "1X": (0.88, 1.12), "Ü2.5": (0.91, 1.1)},
+                           {"1": 1.6}, league="small:iceland:premier-league")
+        p["small_league"] = True
+        self.assertEqual(small_league_recommendation(p, choices)["market"], "1X")
+
+        p, choices = entry(2, {"1": (0.49, 1.9), "Ü2.5": (0.91, 1.1)},
+                           league="small:iceland:premier-league")
+        p["small_league"] = True
+        self.assertIsNone(small_league_recommendation(p, choices))
+
     def test_standard_day_entries_filter_small_flag(self):
         now = datetime.now(timezone.utc) + timedelta(hours=3)
         kickoff = now.strftime("%Y-%m-%dT%H:%MZ")
@@ -232,6 +244,41 @@ class BuildCouponsTest(unittest.TestCase):
         with self.assertRaises(HTTPException) as ctx:
             coupons_endpoint(day="17-10-2026")
         self.assertEqual(ctx.exception.status_code, 400)
+
+    def test_small_picks_endpoint_reads_existing_event_and_odds_fields(self):
+        kickoff = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+        small_id = 'small-1" data-markup="<img src=x onerror=alert(1)>'
+        with db.session() as conn:
+            conn.execute(
+                """INSERT INTO iddaa_events
+                   (id, league, competition_id, kickoff, home, away, league_name, country, is_small, updated_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (small_id, "small:iceland:premier-league", 123, kickoff, "North FC", "South FC",
+                 "İzlanda · Premier League", "İzlanda", 1, kickoff))
+            for market, odd in (("1", 1.3), ("X", 6.0), ("2", 9.0)):
+                conn.execute("INSERT INTO iddaa_odds(event_id, market, odd) VALUES (?, ?, ?)",
+                             (small_id, market, odd))
+
+        result = picks_endpoint(category="small", days=7, min_conf=0.99)
+
+        self.assertEqual(len(result), 1)
+        self.assertEqual(result[0]["id"], small_id)
+        self.assertEqual(result[0]["country"], "İzlanda")
+        self.assertEqual(result[0]["league_name"], "İzlanda · Premier League")
+        self.assertEqual(result[0]["event_id"], small_id)
+        self.assertEqual(result[0]["iddaa_event_id"], small_id)
+        self.assertEqual(result[0]["competition_id"], 123)
+        self.assertEqual(result[0]["pick"]["market"], "1")
+        self.assertEqual(result[0]["pick"]["odds"], 1.3)
+        self.assertEqual(result[0]["pick"]["odds_source"], "iddaa")
+        self.assertEqual(result[0]["pick"]["probability_source"], "iddaa_market")
+        self.assertIsNone(result[0]["pick"]["suggested"])
+        self.assertEqual(result[0]["recommendation_source"], "iddaa_market")
+        self.assertEqual(result[0]["recommendation_label"], "İddaa piyasa favorisi")
+        self.assertIsNone(result[0]["confidence"])
+        self.assertEqual(result[0]["confidence_label"], "Düşük · model güveni yok")
+        self.assertFalse(result[0]["confidence_filter_applied"])
+        self.assertTrue(result[0]["small_league"])
 
 
 if __name__ == "__main__":
