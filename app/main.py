@@ -11,7 +11,7 @@ from fastapi.staticfiles import StaticFiles
 from . import odds_history, odds_log, pwa, updater
 from . import live
 from .api_odds_history import router as odds_history_router
-from .config import LEAGUES, MODEL, STATIC_DIR
+from .config import LEAGUES, MODEL, STATIC_DIR, league_aliases, league_slug, resolve_league
 from .db import get_meta, init_db, is_postgres, session
 from .coupon_history_api import router as coupon_history_router
 from .model import coupon_history, engine
@@ -42,8 +42,10 @@ app.include_router(value_bets_router)
 
 
 def _check_league(league: str):
-    if league not in LEAGUES:
+    canonical = resolve_league(league)
+    if canonical is None:
         raise HTTPException(404, "Bilinmeyen lig")
+    return canonical
 
 
 def _attach_iddaa_odds(items: list[dict]) -> list[dict]:
@@ -73,7 +75,8 @@ def leagues():
             "FROM iddaa_events WHERE is_small=1 GROUP BY league ORDER BY country, league_name")]
     return {"last_update": last, "model": MODEL,
             "iddaa": {"last_update": iddaa_last, "error": iddaa_error, "stats": iddaa_stats},
-            "leagues": [{"id": k, **v, "total": rows.get(k, {}).get("total", 0),
+            "leagues": [{"id": k, **v, "slug": league_slug(k), "aliases": list(league_aliases(k)),
+                         "total": rows.get(k, {}).get("total", 0),
                          "played": rows.get(k, {}).get("played", 0), "category": "main"} for k, v in LEAGUES.items()],
             "small_leagues": [{"id": r["league"], "name": r["league_name"], "country": r["country"],
                                "total": r["total"], "played": 0, "category": "small"} for r in small]}
@@ -104,7 +107,7 @@ def upcoming(league: str, days: int = Query(14, ge=1, le=30)):
             if r["market"] and r["odd"]:
                 item["iddaa_odds"][r["market"]] = r["odd"]
         return [_small_prediction(item) for item in grouped.values()]
-    _check_league(league)
+    league = _check_league(league)
     items = _attach_iddaa_odds(engine.get_model(league).upcoming_predictions(days))
     for item in items:
         item["league_name"] = LEAGUES[league]["name"]
@@ -151,7 +154,7 @@ def match(match_id: str):
 
 @app.get("/api/standings")
 def standings(league: str):
-    _check_league(league)
+    league = _check_league(league)
     m = engine.get_model(league)
     elo = m.elo
     return [{**r, "elo": round(elo.get(r["team"]))} for r in m.table]

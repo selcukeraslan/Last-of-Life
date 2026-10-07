@@ -88,6 +88,10 @@ async function loadLeagues() {
   const d = await api("/api/leagues");
   state.leagues = d.leagues;
   state.smallLeagues = d.small_leagues || [];
+  const selected = [...state.leagues, ...state.smallLeagues].find((l) =>
+    l.id === state.league || l.slug === state.league || l.name === state.league || l.aliases?.includes(state.league));
+  state.league = selected?.id || state.leagues[0]?.id || "tur.1";
+  localStorage.setItem("league", state.league);
   state.model = d.model;
   state.lastUpdate = d.last_update;
   showLastUpdate();
@@ -103,7 +107,8 @@ async function renderMatches() {
   const el = $("#matches");
   el.innerHTML = `<p class="muted">Yükleniyor…</p>`;
   renderOddsDrops();
-  const list = await api(`/api/upcoming?league=${state.league}&days=14`);
+  const query = new URLSearchParams({ league: state.league, days: "14" });
+  const list = await api(`/api/upcoming?${query}`);
   if (!list.length) { el.innerHTML = `<div class="card muted">Önümüzdeki 14 günde maç bulunamadı. Verileri güncellemeyi deneyin.</div>`; return; }
   const selectedLeague = [...state.leagues, ...(state.smallLeagues || [])].find((l) => l.id === state.league);
   const leagueTitle = selectedLeague ? `${selectedLeague.country ? esc(selectedLeague.country) + " · " : ""}${esc(selectedLeague.name)}` : "";
@@ -176,8 +181,19 @@ async function renderCoupons() {
 
 async function renderTable() {
   const el = $("#table");
+  if (!state.leagues.some((l) => l.id === state.league)) {
+    el.innerHTML = `<div class="card muted">Bu lig için puan durumu mevcut değil.</div>`;
+    return;
+  }
   el.innerHTML = `<p class="muted">Yükleniyor…</p>`;
-  const rows = await api(`/api/standings?league=${state.league}`);
+  let rows;
+  try {
+    const query = new URLSearchParams({ league: state.league });
+    rows = await api(`/api/standings?${query}`);
+  } catch (e) {
+    el.innerHTML = `<div class="card muted">Puan durumu yüklenemedi: ${esc(e.message)}</div>`;
+    return;
+  }
   el.innerHTML = `<div class="card"><table>
     <tr><th>#</th><th class="l">Takım</th><th>O</th><th>G</th><th>B</th><th>M</th><th>A</th><th>Y</th><th>AV</th><th>P</th><th>Ev P/M</th><th>Dep P/M</th><th>Form</th><th>Elo</th></tr>
     ${rows.map((r) => `<tr><td>${r.pos}</td><td class="l">${esc(r.team)}</td><td>${r.p}</td><td>${r.w}</td><td>${r.d}</td><td>${r.l}</td>
