@@ -42,6 +42,7 @@ async function renderOddsHistory(m) {
 async function renderOddsDrops() {
   const el = $("#oddsDrops"), req = (state.dropsReq = (state.dropsReq || 0) + 1);
   if (!el) return;
+  if (String(state.league).startsWith("small:")) { el.innerHTML = ""; return; }  // küçük liglerde düşüş endpoint'i yok
   let d;
   try { d = await api(`/api/odds/drops?league=${state.league}&limit=8`); } catch (e) { el.innerHTML = ""; return; }
   if (req !== state.dropsReq) return; // lig değişti, daha yeni istek var
