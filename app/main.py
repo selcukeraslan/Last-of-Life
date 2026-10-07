@@ -3,6 +3,7 @@ import json
 import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone, date
+from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Query
 from fastapi.responses import FileResponse
@@ -90,15 +91,17 @@ def upcoming(league: str, days: int = Query(14, ge=1, le=30)):
         now = datetime.now(timezone.utc)
         with session() as conn:
             rows = conn.execute(
-                """SELECT e.id, e.league, e.league_name, e.country, e.kickoff, e.home, e.away,
-                          o.market, o.odd
+                """SELECT e.id, e.competition_id, e.updated_at, e.league, e.league_name,
+                          e.country, e.kickoff, e.home, e.away, o.market, o.odd
                    FROM iddaa_events e LEFT JOIN iddaa_odds o ON o.event_id=e.id
                    WHERE e.is_small=1 AND e.league=? AND e.kickoff>=? AND e.kickoff<=?
                    ORDER BY e.kickoff""",
                 (league, now.isoformat(), (now + timedelta(days=days)).isoformat())).fetchall()
         grouped = {}
         for r in rows:
-            item = grouped.setdefault(r["id"], {"id": r["id"], "league": league,
+            item = grouped.setdefault(r["id"], {"id": r["id"], "event_id": r["id"],
+                "iddaa_event_id": r["id"], "competition_id": r["competition_id"],
+                "iddaa_updated_at": r["updated_at"], "league": league,
                 "league_name": r["league_name"], "country": r["country"], "kickoff": r["kickoff"],
                 "home": r["home"], "away": r["away"], "iddaa_odds": {}, "small_league": True})
             if r["market"] and r["odd"]:
@@ -112,30 +115,27 @@ def upcoming(league: str, days: int = Query(14, ge=1, le=30)):
 
 
 def _small_prediction(event: dict) -> dict:
-    """Marjı temizlenmiş bülten olasılığı, küçük liglerde düşük güven etiketiyle sunulur."""
-    from .model.small_leagues import predict_event
-    return predict_event(event)
+    """Return actual small-league bulletin data and only market-derived probabilities."""
+    from .model.small_leagues import bulletin_event
+    return bulletin_event(event)
 
 
 @app.get("/api/match/{match_id}")
-def match(match_id: str):
+def match(match_id: str, competition_id: Annotated[int | None, Query(ge=1)] = None):
     with session() as conn:
         small = conn.execute("SELECT * FROM iddaa_events WHERE id=? AND is_small=1", (match_id,)).fetchone()
         if small:
+            if competition_id is not None and small["competition_id"] != competition_id:
+                raise HTTPException(404, "Maç bulunamadı")
             odds = {r["market"]: r["odd"] for r in conn.execute(
                 "SELECT market, odd FROM iddaa_odds WHERE event_id=?", (match_id,)).fetchall()}
-            event = {"id": small["id"], "league": small["league"], "league_name": small["league_name"],
+            event = {"id": small["id"], "event_id": small["id"], "iddaa_event_id": small["id"],
+                "competition_id": small["competition_id"], "iddaa_updated_at": small["updated_at"],
+                "league": small["league"], "league_name": small["league_name"],
                 "country": small["country"], "kickoff": small["kickoff"], "home": small["home"],
                 "away": small["away"], "iddaa_odds": odds, "small_league": True}
             result = _small_prediction(event)
             result["league_name"] = f"{small['country']} · {small['league_name']}"
-            result["factors"] = {"table": {"home": None, "away": None},
-                "elo": {"home": 1500, "away": 1500, "lambda_home": result["lambda_home"], "lambda_away": result["lambda_away"]},
-                "poisson": {"att_home": 1, "att_away": 1, "def_home": 1, "def_away": 1,
-                            "home": result["lambda_home"], "away": result["lambda_away"]},
-                "form": {"home": "", "away": ""}, "news": {"home": {"score": 0, "injuries": 0}, "away": {"score": 0, "injuries": 0}},
-                "rest_days": {"home": None, "away": None}}
-            result["scores"] = []
             return result
     for lg in LEAGUES:
         m = next((x for x in engine.get_model(lg).upcoming if x["id"] == match_id), None)
