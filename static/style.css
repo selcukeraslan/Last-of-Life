@@ -105,6 +105,7 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
 .coupon-group > h3 { margin: 0 0 8px; }
 .coupon-card table { margin-top: 8px; }
 .coupon-total { margin-top: 12px; padding-top: 10px; border-top: 1px solid var(--line); }
+.coupon-share-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-top: 12px; }
 
 @media (max-width: 760px) {
   .topbar { position: sticky; gap: 8px; padding: 8px 12px; }

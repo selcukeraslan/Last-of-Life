@@ -205,9 +205,14 @@ async function renderCoupons() {
     ? fmtDay(`${data.date}T12:00:00Z`) : "Gün bilgisi yok";
   const matches = Number.isFinite(Number(data.matches)) ? Number(data.matches) : 0;
   el.innerHTML = `<p class="muted">${esc(dateText)} · ana ligler: ${matches} maç</p>` +
-    CouponView.couponGroup(data, "banko", "b-good") +
-    CouponView.couponGroup(data, "surprise", "b-warn") +
-    CouponView.couponCard(data.small_leagues, "Küçük Ligler Kuponu", "b-warn");
+    CouponView.couponGroup(data, "banko", "b-good", data.date) +
+    CouponView.couponGroup(data, "surprise", "b-warn", data.date) +
+    CouponView.couponCard(data.small_leagues, "Küçük Ligler Kuponu", "b-warn", { kind: "small_leagues", index: 0, date: data.date });
+  el.querySelectorAll("[data-share-coupon]").forEach((button) => button.addEventListener("click", () => {
+    const type = button.dataset.shareType, index = Number(button.dataset.shareIndex) || 0;
+    const coupon = type === "small_leagues" ? data.small_leagues : CouponView.alternatives(data, type)[index];
+    if (coupon?.picks?.length) window.CouponShare?.share({ title: button.closest(".coupon-card").querySelector("h3").textContent, date: data.date, picks: coupon.picks, totalOdds: coupon.total_odds }, button.parentElement.querySelector("[data-share-size]").value);
+  }));
 }
 
 async function renderTable() {

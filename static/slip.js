@@ -172,6 +172,8 @@
       <div class="slip-stake"><label>Yatırılacak tutar (₺) <input id="slipStake" type="text" inputmode="decimal" autocomplete="off" value="${data.stake === null ? "" : esc(String(data.stake).replace(".", ","))}" placeholder="örn. 100"></label></div>
       <div id="slipResult">${resultHtml(s)}</div>
       <div class="slip-actions">
+        <button type="button" class="btn" id="slipShare">Paylaş</button>
+        <select id="slipShareSize" aria-label="Görsel boyutu"><option value="square">Kare 1080×1080</option><option value="story">Story 1080×1920</option></select>
         <button type="button" class="btn" id="slipRefresh" ${refreshing ? "disabled" : ""}>${refreshing ? "Yenileniyor…" : "Oranları yenile"}</button>
         <button type="button" class="btn btn-ghost" id="slipClear">Kuponu temizle</button>
       </div>
@@ -191,13 +193,14 @@
   // ---------- olaylar ----------
   // Yakalama aşamasında: kart içindeki düğme tıklaması maç detayını (app.js'teki [data-id] dinleyicisi) açmasın.
   document.addEventListener("click", (e) => {
-    const t = e.target.closest(".slip-add, .slip-remove, #slipClear, #slipRefresh");
+    const t = e.target.closest(".slip-add, .slip-remove, #slipClear, #slipRefresh, #slipShare");
     if (!t) return;
     e.stopPropagation();
     if (t.classList.contains("slip-add")) toggle(t.dataset.slipId, t.dataset.slipMarket);
     else if (t.classList.contains("slip-remove")) { data.items = C.removeSelection(data.items, t.dataset.slipRemove); changed(); }
     else if (t.id === "slipClear") { data.items = []; missing.clear(); changed(); }
     else if (t.id === "slipRefresh") refresh();
+    else if (t.id === "slipShare") { const s = C.summarize(data.items, data.stake, Date.now()); window.CouponShare?.share({ title: "Kuponum", date: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), picks: s.rows.map((r) => ({ home: r.home, away: r.away, market: r.market, odds: r.odds, kickoff: r.kickoff })), totalOdds: s.totalOdds }, q("#slipShareSize").value); }
   }, true);
 
   document.addEventListener("input", (e) => {
