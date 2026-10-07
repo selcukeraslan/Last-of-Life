@@ -123,3 +123,14 @@ class SyncOddsTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 iddaa.sync_odds(conn)
             self.assertEqual(iddaa.odds_for_matches(conn, ["espn-1"]), {})
+
+
+def test_turkish_and_german_aliases_match_espn_names():
+    from app.scrapers import iddaa
+    pairs = [("Amed Sportif Faaliyetler", "Amed SFK"), ("Gençlerbirliği", "Genclerbirligi"),
+             ("Köln", "FC Cologne"), ("Monchengladbach", "Borussia Mönchengladbach"),
+             ("Çaykur Rizespor", "Caykur Rizespor"), ("Kasımpaşa", "Kasimpasa"),
+             ("Erzurumspor", "Erzurum BB"), ("Çorum FK", "Corum FK"),
+             ("İstanbul Başakşehir", "Istanbul Basaksehir")]
+    for a, b in pairs:
+        assert iddaa.team_similarity(a, b) == 1.0, (a, b)
