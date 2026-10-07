@@ -16,7 +16,7 @@ from .db import get_meta, init_db, is_postgres, session
 from .coupon_history_api import router as coupon_history_router
 from .model import coupon_history, engine
 from .model.blend import blend_predictions
-from .model.coupons import TZ, build_coupons
+from .model.coupons import TZ, build_coupons, small_league_recommendation
 from .model.ratings import parse_ts
 from .value_bets import router as value_bets_router
 
@@ -157,9 +157,60 @@ def standings(league: str):
     return [{**r, "elo": round(elo.get(r["team"]))} for r in m.table]
 
 
+def _small_pick(prediction: dict) -> dict | None:
+    choice = small_league_recommendation(prediction)
+    if not choice:
+        return None
+    return {"market": choice["market"], "p": choice["p"], "suggested": choice["claude_odds"]}
+
+
+def _small_league_picks(days: int, min_conf: float = 0.0) -> list[dict]:
+    now = datetime.now(timezone.utc)
+    with session() as conn:
+        rows = conn.execute(
+            """SELECT e.id, e.league, e.league_name, e.country, e.kickoff, e.home, e.away,
+                      o.market, o.odd
+               FROM iddaa_events e LEFT JOIN iddaa_odds o ON o.event_id=e.id
+               WHERE e.is_small=1 AND e.kickoff>=? AND e.kickoff<=?
+               ORDER BY e.kickoff""",
+            (now.isoformat(), (now + timedelta(days=days)).isoformat())).fetchall()
+    grouped = {}
+    for row in rows:
+        event = grouped.setdefault(row["id"], {
+            "id": row["id"], "league": row["league"], "league_name": row["league_name"],
+            "country": row["country"], "kickoff": row["kickoff"], "home": row["home"],
+            "away": row["away"], "iddaa_odds": {}, "small_league": True,
+        })
+        if row["market"] and row["odd"]:
+            event["iddaa_odds"][row["market"]] = row["odd"]
+
+    picks = []
+    for event in grouped.values():
+        prediction = _small_prediction(event)
+        if prediction["confidence"] < min_conf:
+            continue
+        pick = _small_pick(prediction)
+        if not pick:
+            continue
+        picks.append({"id": prediction["id"], "league": prediction["league"],
+                      "league_name": prediction["league_name"], "country": prediction["country"],
+                      "kickoff": prediction["kickoff"], "home": prediction["home"],
+                      "away": prediction["away"], "pick": pick,
+                      "confidence": prediction["confidence"],
+                      "confidence_label": prediction["confidence_label"],
+                      "small_league": True, "iddaa_odds": prediction["iddaa_odds"],
+                      "score": pick["p"] * (0.5 + prediction["confidence"])})
+    picks.sort(key=lambda item: (-item["score"], item["kickoff"]))
+    return picks
+
+
 @app.get("/api/picks")
-def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0):
-    """Tüm liglerden en güvenilir önerileri döndürür."""
+def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0, category: str = "main"):
+    """Ana lig veya küçük lig önerilerini döndürür."""
+    if category == "small":
+        return _small_league_picks(days, min_conf)
+    if category != "main":
+        raise HTTPException(400, "Bilinmeyen öneri kategorisi")
     predictions = [p for lg in LEAGUES for p in engine.get_model(lg).upcoming_predictions(days)
                    if not p.get("small_league")]
     out = []

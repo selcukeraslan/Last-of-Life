@@ -58,6 +58,13 @@ def _match_view(prediction: dict, choice: dict) -> dict:
             "model_probability": choice["p"]}
 
 
+def small_league_recommendation(prediction: dict, choices: list[dict] | None = None) -> dict | None:
+    """Küçük ligdeki maç için mevcut düşük güven seçim kuralına uyan en olası pazarı bul."""
+    choices = choices if choices is not None else _choices(prediction, prediction.get("iddaa_odds", {}))
+    valid = [c for c in choices if c["market"] in {"1", "1X", "X2", "2"} and c["p"] >= 0.50]
+    return max(valid, key=lambda c: (c["p"], -c["odds"])) if valid else None
+
+
 def _coupon(kind: str, picks: list[dict], note: str) -> dict:
     sources = {p["odds_source"] for p in picks}
     source = sources.pop() if len(sources) == 1 else ("karışık" if sources else None)
@@ -134,9 +141,9 @@ def select_small_league(entries: list[tuple[dict, list[dict]]]) -> list[dict]:
     for prediction, choices in entries:
         if not prediction.get("small_league"):
             continue
-        valid = [c for c in choices if c["market"] in {"1", "1X", "X2", "2"} and c["p"] >= 0.50]
-        if valid:
-            best.append((prediction, max(valid, key=lambda c: (c["p"], -c["odds"]))))
+        choice = small_league_recommendation(prediction, choices)
+        if choice:
+            best.append((prediction, choice))
     best.sort(key=lambda item: (-item[1]["p"], item[0]["kickoff"]))
     picks = []
     for prediction, choice in best[:4]:

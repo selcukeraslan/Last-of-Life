@@ -48,7 +48,11 @@
     <section id="tab-picks" class="tab hidden">
       <div class="toolbar">
         <label>Gün: <select id="pickDays"><option>3</option><option selected>7</option><option>14</option></select></label>
-        <label>Min. güven: <select id="pickConf"><option value="0">Hepsi</option><option value="0.45">Orta+</option><option value="0.7">Yüksek</option></select></label>
+        <label id="pickConfControl">Min. güven: <select id="pickConf"><option value="0">Hepsi</option><option value="0.45">Orta+</option><option value="0.7">Yüksek</option></select></label>
+      </div>
+      <div id="pickCategories" class="pick-categories" role="tablist" aria-label="Öneri kategorisi">
+        <button type="button" class="pick-category active" data-picks-category="main" role="tab" aria-selected="true">Ana Ligler</button>
+        <button type="button" class="pick-category" data-picks-category="small" role="tab" aria-selected="false">Küçük Ligler</button>
       </div>
       <div id="picks"></div>
     </section>
