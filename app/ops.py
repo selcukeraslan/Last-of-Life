@@ -16,7 +16,7 @@ CREATE TABLE IF NOT EXISTS rate_limits (
     key TEXT NOT NULL,
     window BIGINT NOT NULL,
     hits INTEGER NOT NULL DEFAULT 0,
-    PRIMARY KEY (key, window)
+    PRIMARY KEY (key, win)
 );
 """
 
@@ -55,11 +55,11 @@ def rate_limited(key: str, limit: int, window_seconds: int = 60) -> bool:
     """DB tabanlı sabit pencere sayacı (serverless uyumlu). Sınır aşıldıysa True."""
     window = int(time.time() // window_seconds)
     with session() as conn:
-        conn.execute("DELETE FROM rate_limits WHERE window < ?", (window - 5,))
+        conn.execute("DELETE FROM rate_limits WHERE win < ?", (window - 5,))
         conn.execute(
-            "INSERT INTO rate_limits(key, window, hits) VALUES(?, ?, 1) "
-            "ON CONFLICT(key, window) DO UPDATE SET hits = rate_limits.hits + 1", (key, window))
-        row = conn.execute("SELECT hits FROM rate_limits WHERE key=? AND window=?", (key, window)).fetchone()
+            "INSERT INTO rate_limits(key, win, hits) VALUES(?, ?, 1) "
+            "ON CONFLICT(key, win) DO UPDATE SET hits = rate_limits.hits + 1", (key, window))
+        row = conn.execute("SELECT hits FROM rate_limits WHERE key=? AND win=?", (key, window)).fetchone()
     return row["hits"] > limit
 
 
