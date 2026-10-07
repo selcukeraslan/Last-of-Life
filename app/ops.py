@@ -14,7 +14,7 @@ log = logging.getLogger("iddiaoran")
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS rate_limits (
     key TEXT NOT NULL,
-    window BIGINT NOT NULL,
+    win BIGINT NOT NULL,
     hits INTEGER NOT NULL DEFAULT 0,
     PRIMARY KEY (key, win)
 );
