@@ -42,6 +42,16 @@ test("coupon groups display multiple alternatives under their type", () => {
   assert.doesNotMatch(html, /Sürpriz Kuponu/);
 });
 
+test("share controls identify each coupon alternative and stay hidden for empty coupons", () => {
+  const html = CouponView.couponGroup({
+    banko_alternatives: [coupon("banko"), coupon("banko")],
+  }, "banko", "b-good", "2026-10-08");
+  assert.match(html, /data-share-type="banko" data-share-index="0"/);
+  assert.match(html, /data-share-type="banko" data-share-index="1"/);
+  const empty = CouponView.couponCard({ picks: [] }, "Küçük Ligler", "b-warn", { kind: "small_leagues", index: 0 });
+  assert.doesNotMatch(empty, /data-share-coupon/);
+});
+
 test("legacy single coupons and a missing response retain a safe rendering path", () => {
   assert.equal(CouponView.alternatives({ banko: coupon("banko") }, "banko").length, 1);
   assert.equal(CouponView.alternatives({ banko_alternatives: [], banko: coupon("banko") }, "banko").length, 1);

@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parent.parent
 class SlipCalcJsTest(unittest.TestCase):
     @unittest.skipUnless(shutil.which("node"), "node kurulu değil")
     def test_node_suite(self):
-        run = subprocess.run(["node", "--test", "tests/js/slip_calc.test.js"], cwd=ROOT,
+        run = subprocess.run(["node", "--test", "tests/js/slip_calc.test.js", "tests/js/coupon_share.test.js"], cwd=ROOT,
                              capture_output=True, text=True, timeout=60)
         self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
 
@@ -19,9 +19,9 @@ class SlipCalcJsTest(unittest.TestCase):
         self.assertIn('data-tab="slip"', html)
         self.assertIn('id="tab-slip"', html)
         # slip.js, app.js'ten önce yüklenmeli (app.js açılışta Slip.button çağırır)
-        order = [html.index(f"/static/{name}") for name in ("slip-calc.js", "slip.js", "app.js")]
+        order = [html.index(f"/static/{name}") for name in ("slip-calc.js", "slip.js", "coupon-share.js", "app.js")]
         self.assertEqual(order, sorted(order))
-        for name in ("slip-calc.js", "slip.js", "slip.css"):
+        for name in ("slip-calc.js", "slip.js", "slip.css", "coupon-share.js"):
             self.assertTrue((ROOT / "static" / name).is_file(), name)
 
 

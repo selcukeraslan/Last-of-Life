@@ -35,7 +35,7 @@
     return `<span class="badge b-info">oranlar: ${Math.trunc(iddaaPicks)}/${picks.length} iddaa, kalanı Claude oran</span>`;
   }
 
-  function couponCard(coupon, title, badgeClass) {
+  function couponCard(coupon, title, badgeClass, share = null) {
     coupon = coupon && typeof coupon === "object" ? coupon : {};
     const picks = Array.isArray(coupon.picks) ? coupon.picks.filter((pick) => pick && typeof pick === "object") : [];
     const rows = picks.map((pick) => `<tr>
@@ -52,7 +52,10 @@
     const totals = picks.length
       ? `<div class="coupon-total"><b>Toplam oran:</b> ${esc(displayNumber(coupon.total_odds))} · <b>Toplam tutma:</b> ${probability(coupon.total_probability)}<br><span class="muted">${esc(coupon.stake_note || "")}</span></div>`
       : "";
-    return `<div class="card coupon-card"><div class="row-between"><h3>${esc(title)}</h3><span>${source(coupon, picks)} <span class="badge ${esc(badgeClass)}">${picks.length} maç</span></span></div>${content}${totals}</div>`;
+    const shareActions = picks.length && share
+      ? `<div class="coupon-share-actions"><button type="button" class="btn" data-share-coupon data-share-type="${esc(share.kind)}" data-share-index="${share.index}">Paylaş</button><select aria-label="Görsel boyutu" data-share-size><option value="square">Kare 1080×1080</option><option value="story">Story 1080×1920</option></select></div>`
+      : "";
+    return `<div class="card coupon-card"><div class="row-between"><h3>${esc(title)}</h3><span>${source(coupon, picks)} <span class="badge ${esc(badgeClass)}">${picks.length} maç</span></span></div>${content}${totals}${shareActions}</div>`;
   }
 
   function alternatives(data, type) {
@@ -66,11 +69,11 @@
       ? [data[type]] : [];
   }
 
-  function couponGroup(data, type, badgeClass) {
+  function couponGroup(data, type, badgeClass, date) {
     const label = type === "surprise" ? "Sürpriz" : "Banko";
     const coupons = alternatives(data, type);
     const content = coupons.length
-      ? coupons.map((coupon, index) => couponCard(coupon, `${label} Kuponu ${index + 1}`, badgeClass)).join("")
+      ? coupons.map((coupon, index) => couponCard(coupon, `${label} Kuponu ${index + 1}`, badgeClass, { kind: type, index, date })).join("")
       : `<div class="card muted">${label} türünde uygun kupon bulunamadı.</div>`;
     return `<section class="coupon-group"><h3>${label} Kupon Alternatifleri</h3>${content}</section>`;
   }
