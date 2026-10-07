@@ -1,5 +1,9 @@
 /* Kütüphanesiz kupon görseli üretimi ve paylaşımı. */
-(function () {
+(function (root, factory) {
+  const api = factory();
+  if (typeof module === "object" && module.exports) module.exports = api;
+  else root.CouponShare = api;
+})(typeof self !== "undefined" ? self : this, function () {
   "use strict";
   const SITE = "iddia-oran.vercel.app";
   const palettes = { bg: "#0f1419", panel: "#171e26", line: "#2a3542", text: "#e6edf3", muted: "#8b98a5", green: "#2fbf71" };
@@ -7,9 +11,30 @@
     const d = new Date(`${value}T12:00:00Z`);
     return Number.isNaN(d.getTime()) ? value : d.toLocaleDateString("tr-TR", { day: "numeric", month: "long", year: "numeric", timeZone: "Europe/Istanbul" });
   };
-  const rounded = (ctx, x, y, w, h, r, color) => { ctx.fillStyle = color; ctx.beginPath(); ctx.roundRect(x, y, w, h, r); ctx.fill(); };
-  function draw(data, size) {
+  const rounded = (ctx, x, y, w, h, r, color) => {
+    ctx.fillStyle = color; ctx.beginPath();
+    if (typeof ctx.roundRect === "function") ctx.roundRect(x, y, w, h, r);
+    else { ctx.moveTo(x + r, y); ctx.arcTo(x + w, y, x + w, y + h, r); ctx.arcTo(x + w, y + h, x, y + h, r); ctx.arcTo(x, y + h, x, y, r); ctx.arcTo(x, y, x + w, y, r); }
+    ctx.closePath(); ctx.fill();
+  };
+  function prepare(data, size) {
     const story = size === "story", width = 1080, height = story ? 1920 : 1080;
+    const top = story ? 300 : 276, footerTop = height - 130, totalHeight = 84;
+    const picks = (data.picks || []).map((p) => {
+      const odds = p.odds ?? p.odds_value;
+      return { ...p, oddsText: Number.isFinite(Number(odds)) && odds !== null && odds !== "" ? Number(odds).toFixed(2) : "-" };
+    });
+    const gap = 6, rowH = picks.length ? Math.min(story ? 116 : 94, (footerTop - top - totalHeight - picks.length * gap) / picks.length) : 0;
+    return { width, height, top, footerTop, totalHeight, gap, rowH, picks, totalOddsText: Number.isFinite(Number(data.totalOdds)) ? Number(data.totalOdds).toFixed(2) : "-" };
+  }
+  const trimText = (ctx, text, maxWidth) => {
+    if (ctx.measureText(text).width <= maxWidth) return text;
+    let s = text;
+    while (s.length && ctx.measureText(`${s}…`).width > maxWidth) s = s.slice(0, -1);
+    return `${s}…`;
+  };
+  function draw(data, size) {
+    const story = size === "story", layout = prepare(data, size), { width, height } = layout;
     const canvas = document.createElement("canvas"); canvas.width = width; canvas.height = height;
     const ctx = canvas.getContext("2d");
     ctx.fillStyle = palettes.bg; ctx.fillRect(0, 0, width, height);
@@ -18,29 +43,31 @@
     ctx.fillStyle = palettes.text; ctx.font = "700 48px system-ui, -apple-system, sans-serif"; ctx.fillText("⚽ İddia Oran", pad, 88);
     ctx.fillStyle = palettes.muted; ctx.font = "24px system-ui, -apple-system, sans-serif"; ctx.fillText(dateText(data.date), pad, 132);
     ctx.fillStyle = palettes.green; ctx.font = "700 56px system-ui, -apple-system, sans-serif"; ctx.fillText(data.title || "Kuponum", pad, 218);
-    let y = story ? 300 : 276;
-    const picks = (data.picks || []).slice(0, 12), rowH = story ? 116 : (picks.length > 5 ? 86 : 98);
-    const fit = Math.min(1, (height - y - 226) / Math.max(1, picks.length * rowH + 134));
-    ctx.save(); ctx.translate(0, y); ctx.scale(1, fit); y = 0;
+    const { top, footerTop, totalHeight, gap, rowH, picks } = layout;
     picks.forEach((p, i) => {
-      const rowY = y + i * rowH;
-      rounded(ctx, pad, rowY, contentW, rowH - 12, 18, palettes.panel);
-      ctx.fillStyle = palettes.text; ctx.font = "650 27px system-ui, -apple-system, sans-serif";
+      const rowY = top + i * (rowH + gap), compact = rowH < 62;
+      const fontSize = Math.max(12, Math.min(compact ? 17 : 27, rowH * (compact ? 0.68 : 0.34)));
+      rounded(ctx, pad, rowY, contentW, Math.max(1, rowH), Math.min(12, rowH / 2), palettes.panel);
+      ctx.fillStyle = palettes.text; ctx.font = `650 ${fontSize}px system-ui, -apple-system, sans-serif`;
       const match = `${p.home || "Ev sahibi"} – ${p.away || "Deplasman"}`;
-      ctx.fillText(match.length > 45 ? `${match.slice(0, 43)}…` : match, pad + 24, rowY + 38);
-      ctx.fillStyle = palettes.muted; ctx.font = "22px system-ui, -apple-system, sans-serif";
-      const kickoff = p.kickoff ? new Date(p.kickoff).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" }) : "";
-      ctx.fillText(`${p.market || "Seçim"}${kickoff ? ` · ${kickoff}` : ""}`, pad + 24, rowY + 71);
-      ctx.textAlign = "right"; ctx.fillStyle = palettes.green; ctx.font = "700 30px system-ui, -apple-system, sans-serif";
-      const pickOdds = p.odds ?? p.odds_value;
-      ctx.fillText(Number(pickOdds || 0).toFixed(2), width - pad - 24, rowY + 57); ctx.textAlign = "left";
+      const kickoff = p.kickoff ? new Date(p.kickoff).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit", timeZone: "Europe/Istanbul" }) : "";
+      const details = `${p.market || "Seçim"}${kickoff ? ` · ${kickoff}` : ""}`;
+      const left = pad + 18, right = width - pad - 18, oddsW = Math.max(40, fontSize * 3.5);
+      if (compact) {
+        ctx.fillText(trimText(ctx, `${match} · ${details}`, contentW - 36 - oddsW), left, rowY + rowH * 0.68);
+      } else {
+        ctx.fillText(trimText(ctx, match, contentW - 36 - oddsW), left, rowY + rowH * 0.38);
+        ctx.fillStyle = palettes.muted; ctx.font = `${Math.max(14, fontSize * 0.78)}px system-ui, -apple-system, sans-serif`;
+        ctx.fillText(trimText(ctx, details, contentW - 36 - oddsW), left, rowY + rowH * 0.76);
+      }
+      ctx.textAlign = "right"; ctx.fillStyle = palettes.green; ctx.font = `700 ${fontSize}px system-ui, -apple-system, sans-serif`;
+      ctx.fillText(p.oddsText, right, rowY + rowH * 0.58); ctx.textAlign = "left";
     });
-    const totalY = picks.length * rowH + 18;
-    rounded(ctx, pad, totalY, contentW, 94, 18, "#1e2731");
-    ctx.fillStyle = palettes.muted; ctx.font = "24px system-ui, -apple-system, sans-serif"; ctx.fillText("TOPLAM ORAN", pad + 24, totalY + 57);
-    ctx.fillStyle = palettes.text; ctx.font = "700 38px system-ui, -apple-system, sans-serif"; ctx.textAlign = "right"; ctx.fillText(Number(data.totalOdds || 0).toFixed(2), width - pad - 24, totalY + 61); ctx.textAlign = "left";
-    ctx.restore();
-    const footY = height - 110;
+    const totalY = top + picks.length * (rowH + gap);
+    rounded(ctx, pad, totalY, contentW, totalHeight, 18, "#1e2731");
+    ctx.fillStyle = palettes.muted; ctx.font = "24px system-ui, -apple-system, sans-serif"; ctx.fillText("TOPLAM ORAN", pad + 24, totalY + 53);
+    ctx.fillStyle = palettes.text; ctx.font = "700 38px system-ui, -apple-system, sans-serif"; ctx.textAlign = "right"; ctx.fillText(layout.totalOddsText, width - pad - 24, totalY + 57); ctx.textAlign = "left";
+    const footY = footerTop + 55;
     ctx.fillStyle = palettes.muted; ctx.font = "22px system-ui, -apple-system, sans-serif";
     ctx.fillText("18+ · garanti değildir", pad, footY); ctx.textAlign = "right"; ctx.fillText(SITE, width - pad, footY); ctx.textAlign = "left";
     return new Promise((resolve) => canvas.toBlob((blob) => resolve(blob), "image/png"));
@@ -59,5 +86,5 @@
       catch { window.prompt("Görsel indirildi. Site linkini kopyalayın:", SITE); }
     } catch (e) { window.alert(`Paylaşım görseli hazırlanamadı: ${e.message}`); }
   }
-  window.CouponShare = { share };
-})();
+  return { share, prepare };
+});
