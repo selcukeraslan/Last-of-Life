@@ -39,6 +39,27 @@ COMPETITION_IDS = {
     46195: "uefa.europa", 588: "uefa.europa",         # UEFA Avrupa Ligi (588: eleme turları)
 }
 
+# İddaa bülteninde ülke/organizasyon adı her sürümde aynı alanda olmayabiliyor.
+_COUNTRY_KEYS = ("countryName", "country", "cn", "country_name", "cname")
+_LEAGUE_KEYS = ("competitionName", "competition", "leagueName", "league", "tournamentName", "n")
+
+
+def _label(raw: dict, keys: tuple[str, ...], fallback: str) -> str:
+    for key in keys:
+        value = raw.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, dict):
+            for name in ("name", "n", "title"):
+                if isinstance(value.get(name), str) and value[name].strip():
+                    return value[name].strip()
+    return fallback
+
+
+def event_labels(raw: dict) -> tuple[str, str]:
+    return (_label(raw, _COUNTRY_KEYS, "Diğer"),
+            _label(raw, _LEAGUE_KEYS, f"Lig {raw.get('ci', 'diğer')}"))
+
 _CHAR_MAP = str.maketrans({"ı": "i", "İ": "i", "ş": "s", "Ş": "s", "ğ": "g", "Ğ": "g",
                            "ø": "o", "Ø": "o", "ł": "l", "Ł": "l", "đ": "d", "Đ": "d", "æ": "ae"})
 _NON_WORD = re.compile(r"[^a-z0-9]+")
@@ -250,18 +271,32 @@ def _market_odds(markets: list[dict]) -> dict[str, float]:
 
 
 def parse_event(raw: dict) -> dict | None:
-    league = COMPETITION_IDS.get(raw.get("ci"))
-    if not league or not raw.get("d") or not raw.get("hn") or not raw.get("an"):
+    if not raw.get("d") or not raw.get("hn") or not raw.get("an"):
         return None  # takım adı olmayan kayıtlar maç değil (turnuva/şampiyon bahsi)
+    country, league_name = event_labels(raw)
+    competition_id = raw.get("ci")
+    if competition_id is None:
+        return None
+    league = COMPETITION_IDS.get(competition_id) or small_league_key(country, league_name)
     return {
         "id": str(raw["i"]),
         "league": league,
-        "competition_id": raw["ci"],
+        "competition_id": competition_id,
+        "league_name": league_name,
+        "country": country,
         "kickoff": datetime.fromtimestamp(raw["d"], timezone.utc).isoformat(),
         "home": raw.get("hn") or "",
         "away": raw.get("an") or "",
         "odds": _market_odds(raw.get("m") or []),
     }
+
+
+def small_league_key(country: str, competition: str) -> str:
+    """Bültendeki ana lig dışı organizasyon için kararlı ve güvenli sınıflandırma anahtarı."""
+    def slug(value):
+        value = _basic_name(str(value))
+        return re.sub(r"\s+", "-", value)[:60] or "diger"
+    return f"small:{slug(country)}:{slug(competition)}"
 
 
 def match_event(event: dict, fixtures: list[dict]) -> tuple[dict | None, float]:
@@ -301,6 +336,9 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
     best_for_fixture: dict[str, tuple[float, str]] = {}
     pairs = []
     for event in events:
+        if event["league"].startswith("small:"):
+            pairs.append((event, None, 0.0))  # küçük ligler kendi bülten kimliğinde kalır
+            continue
         fixture, score = match_event(event, fixtures)
         pairs.append((event, fixture, score))
         if fixture and score > best_for_fixture.get(fixture["id"], (0.0, ""))[0]:
@@ -314,10 +352,12 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
         matched += int(fixture is not None)
         conn.execute(
             """INSERT INTO iddaa_events
-               (id, league, competition_id, kickoff, home, away, match_id, match_score, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+               (id, league, competition_id, kickoff, home, away, match_id, match_score,
+                league_name, country, is_small, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (event["id"], event["league"], event["competition_id"], event["kickoff"],
-             event["home"], event["away"], match_id, score or None, now),
+             event["home"], event["away"], match_id, score or None, event["league_name"],
+             event["country"], int(event["league"].startswith("small:")), now),
         )
         for market, odd in event["odds"].items():
             conn.execute("INSERT INTO iddaa_odds(event_id, market, odd) VALUES (?, ?, ?)",
@@ -330,6 +370,7 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
     odds_history.prune(conn)
 
     stats = {"bulletin_events": len(raw_events), "supported_events": len(events),
+             "small_league_events": sum(e["league"].startswith("small:") for e in events),
              "matched": matched, "odds": odds_count,
              "rate": round(matched / len(events), 3) if events else None}
     set_meta(conn, "iddaa_last_update", now)

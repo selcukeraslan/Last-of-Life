@@ -36,6 +36,8 @@ select, input { background: var(--panel); color: var(--text); border: 1px solid 
 .prose li { margin-bottom: 6px; }
 
 .day-head { margin: 18px 0 8px; color: var(--muted); font-weight: 600; text-transform: capitalize; }
+.league-group { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; padding: 4px 0; }
+.league-group > b { color: var(--muted); font-size: 12px; margin-right: 4px; }
 .match { display: grid; grid-template-columns: 60px 1fr 260px 150px; gap: 14px; align-items: center; cursor: pointer; }
 .match:hover { border-color: var(--accent2); }
 .time { color: var(--muted); font-variant-numeric: tabular-nums; }

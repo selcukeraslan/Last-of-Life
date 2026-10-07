@@ -44,6 +44,20 @@ class CollectTest(unittest.TestCase):
         self.assertEqual([(x["id"], x["selection"]) for x in r["items"]], [(1, "1")])
         self.assertEqual(r["matches_with_odds"], 1)
 
+    def test_small_league_predictions_are_excluded(self):
+        small = {"id": "s", "league": "small:aland:premier", "small_league": True,
+                 "kickoff": "2026-10-10T10:00:00+00:00", "home": "A", "away": "B",
+                 "markets": {"1": {"p": 0.9}}}
+        r = collect([small], {"s": odds(**{"1": 4.0})})
+        self.assertEqual(r["items"], [])
+
+    def test_small_league_predictions_are_excluded(self):
+        small = {"id": "s", "league": "small:aland:premier", "small_league": True,
+                 "kickoff": "2026-10-10T10:00:00+00:00", "home": "A", "away": "B",
+                 "markets": {"1": {"p": 0.9}}}
+        r = collect([small], {"s": {"updated_at": "t", "odds": {"1": 4.0}}})
+        self.assertEqual(r["items"], [])
+
     def test_odds_not_above_one_and_unknown_markets_ignored(self):
         r = collect([pred(1, {"1": 0.9})], {"1": odds(**{"1": 1.0, "KG Var": 3.0})})
         self.assertEqual((r["items"], r["matches_with_odds"]), ([], 0))

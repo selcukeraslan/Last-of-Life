@@ -1,7 +1,7 @@
 import unittest
 
 from app.config import LEAGUES, is_cup
-from app.scrapers.iddaa import COMPETITION_IDS, match_event, parse_event, team_similarity
+from app.scrapers.iddaa import COMPETITION_IDS, match_event, parse_event, small_league_key, team_similarity
 
 
 def event(league, home, away, kickoff="2026-10-10T14:30:00+00:00"):
@@ -30,6 +30,16 @@ class NewLeagueTests(unittest.TestCase):
         self.assertIsNone(parse_event({"i": 1, "ci": 126, "d": 1791220000, "m": []}))
         self.assertEqual(parse_event({"i": 2, "ci": 126, "d": 1791220000, "hn": "A", "an": "B", "m": []})["league"],
                          "uefa.champions")
+
+    def test_unknown_competition_is_small_league_with_country_and_name(self):
+        parsed = parse_event({"i": 3, "ci": 99999, "d": 1791220000, "hn": "A", "an": "B",
+                              "countryName": "Faroe Islands", "competitionName": "Premier League"})
+        self.assertEqual(parsed["league"], small_league_key("Faroe Islands", "Premier League"))
+        self.assertEqual((parsed["country"], parsed["league_name"]), ("Faroe Islands", "Premier League"))
+
+    def test_event_without_competition_name_keeps_unique_competition_id(self):
+        parsed = parse_event({"i": 4, "ci": 98765, "d": 1791220000, "hn": "A", "an": "B"})
+        self.assertIn("98765", parsed["league"])
 
     def test_dutch_and_portuguese_names_match_espn_names(self):
         pairs = [("Ajax", "Ajax Amsterdam"), ("Feyenoord", "Feyenoord Rotterdam"), ("PSV", "PSV Eindhoven"),

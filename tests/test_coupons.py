@@ -10,7 +10,7 @@ from fastapi import HTTPException
 from app import db
 from app.main import coupons as coupons_endpoint
 from app.model import coupons as cp
-from app.model.coupons import _choices, _coupon, select_banko, select_surprise
+from app.model.coupons import _choices, _coupon, select_banko, select_surprise, select_small_league
 
 
 def pred(mid, markets, kickoff="2026-10-17T14:00Z", league="eng.1"):
@@ -98,6 +98,48 @@ class SurpriseTest(unittest.TestCase):
     def test_probability_band_and_markets(self):
         entries = [entry(i, {"1": (0.40, 2.6), "X": (0.10, 9.0), "2": (0.65, 1.6)}) for i in range(1, 6)]
         self.assertEqual(select_surprise(entries), [])  # "1" izinli değil, X p<0.20, 2 p>0.62
+
+
+class SmallLeagueCouponTest(unittest.TestCase):
+    def test_small_leagues_are_excluded_from_existing_coupons(self):
+        entries = [entry(1, {"1": (0.90, 1.3)}), entry(2, {"1": (0.90, 1.3)}),
+                   entry(3, {"X": (0.3, 3.5)}), entry(4, {"X": (0.3, 3.5)}), entry(5, {"X": (0.3, 3.5)})]
+        for p, _ in entries:
+            p["small_league"] = True
+        self.assertEqual(select_banko(entries), [])
+        self.assertEqual(select_surprise(entries), [])
+
+    def test_standard_selectors_exclude_small_flag(self):
+        entries = [entry(i, {"1": (0.9, 1.3), "X": (0.3, 3.0)}) for i in range(1, 6)]
+        for p, _ in entries:
+            p["small_league"] = True
+        self.assertEqual(select_banko(entries), [])
+        self.assertEqual(select_surprise(entries), [])
+        self.assertEqual(len(select_small_league(entries)), 4)
+
+    def test_standard_day_entries_filter_small_flag(self):
+        now = datetime.now(timezone.utc) + timedelta(hours=3)
+        kickoff = now.strftime("%Y-%m-%dT%H:%MZ")
+        regular = {**pred(10, {"1": (0.8, 1.3)}, kickoff=kickoff), "iddaa_odds": {}}
+        small = {**pred(11, {"1": (0.9, 1.2)}, kickoff=kickoff), "small_league": True, "iddaa_odds": {}}
+        fake = type("M", (), {"upcoming_predictions": lambda self, d: [regular, small]})()
+        with patch.object(cp, "LEAGUES", {"eng.1": {"name": "x"}}), \
+             patch.object(cp.engine, "get_model", lambda l: fake), \
+             patch.object(cp, "blend_predictions", lambda conn, xs: xs):
+            entries = cp._day_entries(now.astimezone(cp.TZ).date())
+        self.assertEqual([p["id"] for p, _ in entries], [10])
+
+    def test_small_coupon_has_two_to_four_low_confidence_selections(self):
+        entries = []
+        for i in range(1, 6):
+            p = pred(i, {"1": (0.66, 1.5), "1X": (0.82, 1.2)})
+            p["small_league"] = True
+            p["league_name"] = "Islands · Premier League"
+            entries.append((p, _choices(p, {"1": 1.55})))
+        picks = select_small_league(entries)
+        self.assertEqual(len(picks), 4)
+        self.assertTrue(all(p["small_league"] and p["confidence"] == "Düşük" for p in picks))
+
 
 
 class BuildCouponsTest(unittest.TestCase):
