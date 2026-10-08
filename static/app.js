@@ -370,6 +370,7 @@ async function openMatch(id, competitionId = null) {
       </div>`).join("")}</div>
     </div>
     <div id="oddsHistory"></div>
+    <div id="matchInsights"></div>
     <div class="grid2">
       <div class="card"><h3>Güç parametreleri</h3>
         <div class="kv">
@@ -405,6 +406,7 @@ async function openMatch(id, competitionId = null) {
   });
   $("#modal").classList.remove("hidden");
   renderOddsHistory(m);
+  renderMatchInsights(m);
 }
 function closeModal() { state.matchReq += 1; $("#modal").classList.add("hidden"); }
 window.closeModal = closeModal;
