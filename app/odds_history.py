@@ -29,18 +29,17 @@ def record_snapshot(conn, events: list[dict], captured_at: str | None = None) ->
     """Parse edilmiş iddaa etkinliklerinin oranlarını geçmişe ekler; son kayıtla aynıysa yazmaz."""
     captured_at = captured_at or _now_iso()
     latest = _latest_recorded(conn)
-    written = 0
+    rows = []
     for event in events:
         for market, odd in event["odds"].items():
             previous = latest.get((event["id"], market))
             if previous is not None and round(previous, 2) == round(odd, 2):
                 continue
-            conn.execute(
-                """INSERT INTO iddaa_odds_history(event_id, market, odd, captured_at, kickoff)
-                   VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING""",
-                (event["id"], market, odd, captured_at, event["kickoff"]))
-            written += 1
-    return written
+            rows.append((event["id"], market, odd, captured_at, event["kickoff"]))
+    conn.executemany(
+        """INSERT INTO iddaa_odds_history(event_id, market, odd, captured_at, kickoff)
+           VALUES (?, ?, ?, ?, ?) ON CONFLICT DO NOTHING""", rows)
+    return len(rows)
 
 
 def prune(conn, now: datetime | None = None, retention_days: int = RETENTION_DAYS) -> int:

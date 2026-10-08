@@ -157,6 +157,18 @@ class Connection:
         sql, params = self._translate(sql, params)
         return self._raw.execute(sql) if params is None else self._raw.execute(sql, params)
 
+    def executemany(self, sql: str, rows):
+        """Toplu yazım: psycopg3 pipeline ile tek round-trip'e yakın (uzak DB'de satır başına gecikme yok)."""
+        rows = list(rows)
+        if not rows:
+            return
+        sql, _ = self._translate(sql, rows[0])
+        if self.postgres:
+            with self._raw.cursor() as cur:
+                cur.executemany(sql, rows)
+        else:
+            self._raw.executemany(sql, rows)
+
     def executescript(self, sql: str):
         if self.postgres:
             self._raw.execute(sql)
