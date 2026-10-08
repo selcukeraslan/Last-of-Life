@@ -180,6 +180,14 @@ def connect() -> Connection:
 
         # Transaction pooler hazırlanmış ifadeleri desteklemez -> prepare_threshold=None
         raw = psycopg.connect(DATABASE_URL, row_factory=dict_row, prepare_threshold=None, connect_timeout=15)
+        # Takılı/yetim bir oturum satır kilidi tutarsa iş sonsuza dek beklemesin (CI 40 dk takılıp iptal oldu)
+        for stmt in ("SET lock_timeout = '30s'", "SET statement_timeout = '120s'",
+                     "SET idle_in_transaction_session_timeout = '300s'"):
+            try:
+                raw.execute(stmt)
+            except Exception:
+                raw.rollback()
+        raw.commit()
         return Connection(raw, True)
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
     raw = sqlite3.connect(DB_PATH, timeout=30)
