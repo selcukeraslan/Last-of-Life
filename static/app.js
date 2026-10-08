@@ -59,6 +59,7 @@ async function refreshLive() {
       if (score) score.innerHTML = m ? liveBadge(m) : "";
     });
     if (state.tab === "slip") Slip.render();
+    window.Extras?.onLive();
   } catch { /* canlı skor geçici olarak alınamazsa mevcut görünüm korunur */ }
 }
 
@@ -151,11 +152,11 @@ async function renderMatches() {
     const detailId = m.small_league ? (m.iddaa_event_id || m.id) : m.id;
     const has1x2Probabilities = ["1", "X", "2"].every((key) => Number.isFinite(k[key]?.p));
     const live = state.live.get(String(m.id));
-    html += `<div class="card match" data-id="${esc(m.id)}" data-match-id="${esc(detailId)}" data-event-id="${esc(m.iddaa_event_id || (m.small_league ? m.id : ""))}" data-competition-id="${esc(m.competition_id ?? "")}" role="button" tabindex="0" aria-label="${esc(m.home)} - ${esc(m.away)} maç detayı">
+    html += `<div class="card match" data-home="${esc(m.home)}" data-away="${esc(m.away)}" data-id="${esc(m.id)}" data-match-id="${esc(detailId)}" data-event-id="${esc(m.iddaa_event_id || (m.small_league ? m.id : ""))}" data-competition-id="${esc(m.competition_id ?? "")}" role="button" tabindex="0" aria-label="${esc(m.home)} - ${esc(m.away)} maç detayı">
       <div class="time">${live ? liveBadge(live) : fmtTime(m.kickoff)}</div>
       <div class="teams">
-        <div>${img(m.home_logo)}<b>${esc(m.home)}</b><span class="xg">${Number.isFinite(m.lambda_home) ? m.lambda_home.toFixed(2) + " xG" : "xG verisi yok"}</span></div>
-        <div>${img(m.away_logo)}<b>${esc(m.away)}</b><span class="xg">${Number.isFinite(m.lambda_away) ? m.lambda_away.toFixed(2) + " xG" : "xG verisi yok"}</span></div>
+        <div>${window.Extras ? Extras.star(m.home) : ""}${img(m.home_logo)}<b>${esc(m.home)}</b><span class="xg">${Number.isFinite(m.lambda_home) ? m.lambda_home.toFixed(2) + " xG" : "xG verisi yok"}</span></div>
+        <div>${window.Extras ? Extras.star(m.away) : ""}${img(m.away_logo)}<b>${esc(m.away)}</b><span class="xg">${Number.isFinite(m.lambda_away) ? m.lambda_away.toFixed(2) + " xG" : "xG verisi yok"}</span></div>
       </div>
       <div>
         ${has1x2Probabilities ? `<div class="probbar"><div class="h" style="width:${k["1"].p * 100}%"></div><div class="d" style="width:${k["X"].p * 100}%"></div><div class="a" style="width:${k["2"].p * 100}%"></div></div>` : `<div class="muted">Olasılık verisi yok</div>`}
@@ -170,7 +171,8 @@ async function renderMatches() {
       </div>
     </div>`;
   }
-  el.innerHTML = (leagueTitle ? `<div class="day-head">${leagueTitle}</div>` : "") + html;
+  el.innerHTML = (window.Extras ? Extras.filterButton() : "") + (leagueTitle ? `<div class="day-head">${leagueTitle}</div>` : "") + html;
+  window.Extras?.afterMatches(list);
 }
 
 async function renderPicks() {
@@ -412,7 +414,7 @@ function closeModal() { state.matchReq += 1; $("#modal").classList.add("hidden")
 window.closeModal = closeModal;
 
 async function render() {
-  $("#leagueChips").classList.toggle("hidden", state.tab === "picks" || state.tab === "model" || state.tab === "value");
+  $("#leagueChips").classList.toggle("hidden", state.tab === "picks" || state.tab === "model" || state.tab === "value" || state.tab === "ledger");
   try {
     if (state.tab === "matches") await renderMatches();
     if (state.tab === "picks") await renderPicks();
@@ -420,6 +422,7 @@ async function render() {
     if (state.tab === "coupons") await renderCoupons();
     if (state.tab === "value") await renderValue();
     if (state.tab === "slip") await Slip.render();
+    if (state.tab === "ledger") Extras.renderLedger();
     if (state.tab === "model") await renderModel();
   } catch (e) {
     $(`#tab-${state.tab}`).insertAdjacentHTML("afterbegin", Ui.error(e.message));

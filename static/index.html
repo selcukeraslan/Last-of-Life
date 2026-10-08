@@ -37,6 +37,7 @@
     <button id="moreBtn" type="button" class="more-btn" aria-expanded="false" aria-controls="morePanel"><i aria-hidden="true">☰</i><span>Daha fazla</span></button>
     <div id="morePanel" class="more-panel">
       <button data-tab="coupon-history"><i aria-hidden="true">🗂</i><span>Kupon Geçmişi</span></button>
+      <button data-tab="ledger"><i aria-hidden="true">📒</i><span>Defter</span></button>
       <button data-tab="value"><i aria-hidden="true">💎</i><span>Değerli Oranlar</span></button>
       <button data-tab="table"><i aria-hidden="true">📊</i><span>Puan Durumu</span></button>
       <button data-tab="model"><i aria-hidden="true">🧠</i><span>Model</span></button>
@@ -92,6 +93,10 @@
       <div id="slip"></div>
     </section>
 
+    <section id="tab-ledger" class="tab hidden">
+      <div id="ledger"></div>
+    </section>
+
     <section id="tab-table" class="tab hidden">
       <div id="table"></div>
     </section>
@@ -132,7 +137,9 @@
   <script src="/static/match-insights.js"></script>
   <script src="/static/blend.js"></script>
   <script src="/static/slip-calc.js"></script>
+  <script src="/static/system-calc.js"></script>
   <script src="/static/slip.js"></script>
+  <script src="/static/extras.js"></script>
   <script src="/static/match-events.js"></script>
   <script src="/static/coupon-view.js"></script>
   <script src="/static/coupon-share.js"></script>

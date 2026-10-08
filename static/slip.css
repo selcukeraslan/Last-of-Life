@@ -26,3 +26,17 @@
 
 .slip-toast { position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%); background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 10px; padding: 8px 14px; font-size: 13px; opacity: 0; pointer-events: none; transition: opacity .2s; z-index: 20; }
 .slip-toast.show { opacity: 1; }
+
+/* Sistem kuponu, favoriler, kupon defteri */
+#slipSystem { margin-top: 12px; }
+.fav-star { background: none; border: 0; color: var(--muted); font-size: 18px; line-height: 1; cursor: pointer; padding: 0 6px 0 0; vertical-align: middle; }
+.fav-star.on { color: #f5b301; }
+.fav-bar { margin-bottom: 8px; }
+.ledger-chart { width: 100%; max-height: 140px; margin-top: 12px; background: var(--panel2); border-radius: 8px; }
+.ledger-chart path { stroke-width: 2; }
+.ledger-chart path.up { stroke: var(--good); }
+.ledger-chart path.down { stroke: var(--bad); }
+.ledger-chart .zero { stroke: var(--line); stroke-dasharray: 3 3; }
+.ledger-entry { margin-top: 10px; }
+.btn-mini { background: var(--panel2); color: var(--text); border: 1px solid var(--line); border-radius: 6px; padding: 1px 8px; margin-left: 4px; font-size: 11px; cursor: pointer; }
+.ledger-entry .mini li { gap: 8px; }

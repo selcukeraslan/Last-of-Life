@@ -94,6 +94,26 @@ async function run(name, viewport) {
   await tab("slip");
   await tryDo("slip remove", async () => { const r = await page.$(".slip-remove"); if (r) await r.click(); await page.waitForTimeout(500); await check(); await shot("slip-removed"); });
 
+  await tryDo("favorites", async () => {
+    await page.click('nav.tabs [data-tab="matches"]').catch(() => {}); await page.waitForTimeout(800);
+    const star = await page.$("#matches .fav-star"); if (!star) return;
+    await star.click(); await page.click("#favFilter"); await page.waitForTimeout(300); await check();
+    await page.click("#favFilter");
+  });
+  await tryDo("system + ledger", async () => {
+    await page.click(`nav.tabs [data-tab="matches"]`).catch(() => {});
+    const btns = await page.$$("#matches .slip-add");
+    for (const b of btns.slice(0, 3)) { if (!(await b.evaluate((e) => e.classList.contains("on")))) await b.click(); }
+  });
+  await tab("slip");
+  await tryDo("slip system save", async () => {
+    await page.fill("#slipStake", "90");
+    if (await page.$("#slipSystem [data-led-add=system]")) { await page.click("#slipSystem [data-led-add=system]"); await page.waitForTimeout(300); }
+    await check();
+  });
+  await tab("ledger");
+  await tryDo("ledger", async () => { if (!(await page.innerText("#ledger")).includes("Kupon defteri")) note("empty", "defter"); await check(); });
+
   await tab("table");
   await tryDo("standings", async () => {
     const ids = await page.$$eval("#leagueChips .chip[data-league]", (e) => e.map((x) => x.dataset.league));

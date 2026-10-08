@@ -20,8 +20,10 @@ window.Today = (() => {
       <div class="today-grid">
         <div class="card"><h3>Günün banko kuponu</h3>${picks.length ? `<ul class="mini">${picks.map((p) => `<li><span>${esc(p.home)} – ${esc(p.away)}</span><span class="badge b-info">${esc(p.market)}</span><b class="iddaa-odd">${Number(p.odds).toFixed(2)}</b></li>`).join("")}</ul><div class="row-between"><span class="muted">Toplam oran</span><b class="iddaa-odd">${c.banko.total_odds}</b></div>` : Ui.empty("Banko kupon yok", "Bugün şartlara uyan seçim bulunamadı.")}</div>
         <div class="card"><h3>En değerli 3 oran</h3>${top.length ? `<ul class="mini">${top.map((x) => `<li class="clickable" data-id="${esc(x.id)}"><span>${esc(x.home)} – ${esc(x.away)}</span><span class="badge b-info">${esc(x.selection)}</span><b class="iddaa-odd">${x.iddaa_odds.toFixed(2)}</b><b class="ev-pos">+${(x.ev * 100).toFixed(0)}%</b></li>`).join("")}</ul>` : Ui.empty("Değerli oran yok")}</div>
+        <div class="card" id="favToday"></div>
         <div class="card"><h3>Canlı maçlar</h3>${live.length ? `<ul class="mini">${live.map((m) => `<li><span>${esc(m.home)} – ${esc(m.away)}</span>${liveBadge(m)}</li>`).join("")}</ul>` : Ui.empty("Şu an canlı maç yok")}</div>
       </div></section>`;
+    window.Extras?.renderFavToday();
   }
   return { render };
 })();
