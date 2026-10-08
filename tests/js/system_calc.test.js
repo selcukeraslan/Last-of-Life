@@ -38,6 +38,16 @@ test("defter: kombine ve sistem kayıtları değerlendirilir", () => {
   assert.equal(st.series.length, 3);
 });
 
+test("bilinmeyen pazar otomatik sonuçlanmaz", () => {
+  const e = { stake: 10, kind: "combo", picks: [
+    { id: "1", market: "İY 1", home: "A", away: "B", odds: 2, res: null },
+    { id: "2", market: "Ü2.5", home: "C", away: "D", odds: 2, res: null }] };
+  const out = S.settlePicks(e, () => ({ home_goals: 3, away_goals: 0 }), () => true);
+  assert.equal(out.picks[0].res, null);
+  assert.equal(out.picks[1].res, "won");
+  assert.equal(S.evaluate(out).status, "pending");
+});
+
 test("sanitize: bozuk veri elenir; favoriler", () => {
   assert.deepEqual(S.sanitizeLedger("x"), []);
   assert.deepEqual(S.sanitizeLedger([{ stake: -1, picks: [] }, null]), []);

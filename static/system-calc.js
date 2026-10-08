@@ -120,10 +120,12 @@
   }
 
   /** Sonuçlanmış maçlara göre pick.res alanlarını doldurur. finished: Map|id/ad'a göre bulucu -> {home_goals, away_goals}. */
+  const SETTLEABLE = /^(1|X|2|1X|12|X2|KG Var|KG Yok|[ÜA]\d+(\.\d+)?)$/;
+  const isSettleable = (market) => SETTLEABLE.test(market);
   function settlePicks(entry, find, judge) {
     let changed = false;
     const picks = entry.picks.map((p) => {
-      if (p.res) return p;
+      if (p.res || !isSettleable(p.market)) return p; // bilinmeyen pazar elle işaretlenir
       const m = find(p);
       if (!m) return p;
       changed = true;
@@ -157,5 +159,5 @@
   const isFavMatch = (favs, m) => !!m && (favs.includes(m.home) || favs.includes(m.away));
 
   return { MAX_COMBOS, binom, combinations, systemOptions, atLeastK, summarizeSystem, sanitizeEntry, sanitizeLedger,
-    evaluate, settlePicks, ledgerStats, sanitizeFavs, isFavMatch };
+    evaluate, isSettleable, settlePicks, ledgerStats, sanitizeFavs, isFavMatch };
 });
