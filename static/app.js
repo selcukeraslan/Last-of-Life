@@ -544,4 +544,6 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
   await loadLeagues();
   render();
   pollUpdate();
+  const sharedMatch = new URLSearchParams(location.search).get("match");  // SEO sayfasından gelen /?match=<id>
+  if (sharedMatch) openMatch(sharedMatch);
 })();

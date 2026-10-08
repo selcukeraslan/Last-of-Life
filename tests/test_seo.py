@@ -42,3 +42,11 @@ class SeoTest(unittest.TestCase):
         locs = [e.text for e in ET.fromstring(body).iter("{http://www.sitemaps.org/schemas/sitemap/0.9}loc")]
         self.assertIn(seo.SITE + "/mac/galatasaray-kasimpasa-401888280", locs)
         self.assertIn(b"Sitemap:", asgi_get("/robots.txt")[2])
+
+
+class FrontendLinkTest(unittest.TestCase):
+    def test_app_opens_shared_match(self):
+        from app.config import STATIC_DIR
+        js = (STATIC_DIR / "app.js").read_text(encoding="utf-8")
+        self.assertIn('get("match")', js)
+        self.assertIn("openMatch(sharedMatch)", js)
