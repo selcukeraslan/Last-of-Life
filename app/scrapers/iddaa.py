@@ -380,28 +380,30 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
         if fixture and score > best_for_fixture.get(fixture["id"], (0.0, ""))[0]:
             best_for_fixture[fixture["id"]] = (score, event["id"])
     matched = odds_count = 0
+    event_rows, odds_rows = [], []
     log_rows = []  # maç öncesi oranlar ileriye dönük kayda (odds_log) da yazılır
     for event, fixture, score in pairs:
         if fixture and best_for_fixture[fixture["id"]][1] != event["id"]:
             fixture, score = None, 0.0
         match_id = fixture["id"] if fixture else None
         matched += int(fixture is not None)
-        conn.execute(
-            """INSERT INTO iddaa_events
-               (id, league, competition_id, kickoff, home, away, match_id, match_score,
-                league_name, country, is_small, updated_at)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+        event_rows.append(
             (event["id"], event["league"], event["competition_id"], event["kickoff"],
              event["home"], event["away"], match_id, score or None, event["league_name"],
              event["country"], int(event["league"].startswith("small:")), now),
         )
         for market, odd in event["odds"].items():
-            conn.execute("INSERT INTO iddaa_odds(event_id, market, odd) VALUES (?, ?, ?)",
-                         (event["id"], market, odd))
+            odds_rows.append((event["id"], market, odd))
             odds_count += 1
             if match_id and event["kickoff"] > now:
                 log_rows.append((match_id, market, odd))
 
+    conn.executemany(
+        """INSERT INTO iddaa_events
+           (id, league, competition_id, kickoff, home, away, match_id, match_score,
+            league_name, country, is_small, updated_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", event_rows)
+    conn.executemany("INSERT INTO iddaa_odds(event_id, market, odd) VALUES (?, ?, ?)", odds_rows)
     odds_history.record_snapshot(conn, events, now)
     odds_history.prune(conn)
 
