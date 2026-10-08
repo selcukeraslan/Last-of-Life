@@ -25,7 +25,7 @@ function miGoals(s) {
 function miNews(list) {
   if (!list.length) return `<span class="muted">Son ${7} günde haber yok</span>`;
   return list.map((n) => `<div class="mi-news${n.injury ? " inj" : ""}">${n.injury ? `<span class="badge b-warn">Sakatlık/ceza</span> ` : ""}
-    <a href="${esc(n.link || "#")}" target="_blank" rel="noopener">${esc(n.title)}</a></div>`).join("");
+    ${/^https?:\/\//i.test(n.link || "") ? `<a href="${esc(n.link)}" target="_blank" rel="noopener">${esc(n.title)}</a>` : esc(n.title)}</div>`).join("");
 }
 
 // Kütüphanesiz SVG çizgi grafiği; seri: [{at, odd}]
@@ -50,9 +50,10 @@ function miOdds(markets) {
 async function renderMatchInsights(m) {
   const el = $("#matchInsights");
   if (!el) return;
+  const req = state.matchReq;
   let d;
   try { d = await api(`/api/match/${encodeURIComponent(m.id)}/insights`); } catch (e) { return; }
-  if (!$("#matchInsights")) return;
+  if (req !== state.matchReq || !$("#matchInsights")) return;
   const maxL = Math.max(m.lambda_home, m.lambda_away, 1.5);
   el.innerHTML = `
     <div class="card"><h3>Beklenen goller (λ) ve en olası skorlar</h3>

@@ -40,6 +40,11 @@ class MatchInsightsTests(unittest.TestCase):
         self.assertTrue(d["news"]["home"][0]["injury"])
         self.assertEqual(d["odds"], {})
 
+    def test_news_links_http_only(self):
+        self.assertEqual(match_insights._safe_link("https://x.com/a"), "https://x.com/a")
+        for bad in ("javascript:alert(1)", "data:text/html,x", "", None):
+            self.assertIsNone(match_insights._safe_link(bad))
+
     def test_unknown_match_404(self):
         with self.assertRaises(HTTPException):
             match_insights.insights("nope")

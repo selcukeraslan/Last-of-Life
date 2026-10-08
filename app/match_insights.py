@@ -1,4 +1,5 @@
 """Maç detayı için ek içgörüler: form, H2H, gol istatistikleri, 7 günlük haberler, oran serisi."""
+from urllib.parse import urlparse
 from datetime import datetime, timedelta, timezone
 
 from fastapi import APIRouter, HTTPException
@@ -47,13 +48,18 @@ def _goal_stats(conn, team: str, league: str, before: str) -> dict | None:
             "clean_sheet": pct(lambda g: g[2] == 0)}
 
 
+def _safe_link(url):
+    """Yalnız http(s) bağlantılar; aksi halde None (arayüzde düz metin)."""
+    return url if isinstance(url, str) and urlparse(url.strip()).scheme in ("http", "https") else None
+
+
 def _news(conn, team: str, league: str) -> list[dict]:
     since = (datetime.now(timezone.utc) - timedelta(days=NEWS_DAYS)).isoformat()
     rows = conn.execute(
         """SELECT title, link, source, published, injury FROM news
            WHERE league=? AND team=? AND published >= ? ORDER BY injury DESC, published DESC LIMIT 6""",
         (league, team, since)).fetchall()
-    return [{"title": r["title"], "link": r["link"], "source": r["source"], "published": r["published"],
+    return [{"title": r["title"], "link": _safe_link(r["link"]), "source": r["source"], "published": r["published"],
              "injury": bool(r["injury"])} for r in rows]
 
 
@@ -81,7 +87,9 @@ def build(match_id: str) -> dict | None:
 
 @router.get("/{match_id}/insights")
 def insights(match_id: str):
-    data = ops.cached(("match-insights", match_id), lambda: build(match_id))
-    if data is None:
-        raise HTTPException(404, "Maç bulunamadı")
-    return data
+    def load():
+        data = build(match_id)
+        if data is None:  # istisna önbelleğe girmez
+            raise HTTPException(404, "Maç bulunamadı")
+        return data
+    return ops.cached(("match-insights", match_id), load)
