@@ -135,11 +135,12 @@ async function loadLeagues() {
 
 async function renderMatches() {
   const el = $("#matches");
-  el.innerHTML = `<p class="muted">Yükleniyor…</p>`;
+  el.innerHTML = window.Ui ? Ui.skeleton(4) : `<p class="muted">Yükleniyor…</p>`;
   renderOddsDrops();
+  window.Today?.render();
   const query = new URLSearchParams({ league: state.league, days: "14" });
   const list = await api(`/api/upcoming?${query}`);
-  if (!list.length) { el.innerHTML = `<div class="card muted">Önümüzdeki 14 günde maç bulunamadı. Verileri güncellemeyi deneyin.</div>`; return; }
+  if (!list.length) { el.innerHTML = Ui.empty("Maç bulunamadı", "Önümüzdeki 14 günde maç yok. Verileri güncellemeyi deneyin."); return; }
   const selectedLeague = [...state.leagues, ...(state.smallLeagues || [])].find((l) => l.id === state.league);
   const leagueTitle = selectedLeague ? `${selectedLeague.country ? esc(selectedLeague.country) + " · " : ""}${esc(selectedLeague.name)}` : "";
   let html = "", lastDay = "";
@@ -419,7 +420,7 @@ async function render() {
     if (state.tab === "slip") await Slip.render();
     if (state.tab === "model") await renderModel();
   } catch (e) {
-    $(`#tab-${state.tab}`).insertAdjacentHTML("afterbegin", `<div class="card" style="color:var(--bad)">Hata: ${esc(e.message)}</div>`);
+    $(`#tab-${state.tab}`).insertAdjacentHTML("afterbegin", Ui.error(e.message));
   }
 }
 
@@ -483,15 +484,32 @@ $("#leagueChips").addEventListener("click", (e) => {
   }
 });
 
+function setTab(name) {
+  document.querySelectorAll(".tabs button[data-tab]").forEach((b) => {
+    const on = b.dataset.tab === name;
+    b.classList.toggle("active", on);
+    if (on) b.setAttribute("aria-current", "page"); else b.removeAttribute("aria-current");
+  });
+  $("#moreBtn").classList.toggle("active", !!$("#morePanel [data-tab].active"));
+  state.tab = name;
+  document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + name));
+}
+function toggleMore(open) {
+  const on = open ?? !$("#morePanel").classList.contains("open");
+  $("#morePanel").classList.toggle("open", on);
+  $("#moreBtn").setAttribute("aria-expanded", String(on));
+}
 document.addEventListener("click", (e) => {
-  const tab = e.target.closest(".tabs button");
+  if (e.target.closest("#moreBtn")) { toggleMore(); return; }
+  const tab = e.target.closest(".tabs button[data-tab]");
   if (tab) {
-    document.querySelectorAll(".tabs button").forEach((b) => b.classList.toggle("active", b === tab));
-    state.tab = tab.dataset.tab;
-    document.querySelectorAll(".tab").forEach((s) => s.classList.toggle("hidden", s.id !== "tab-" + state.tab));
+    setTab(tab.dataset.tab);
+    toggleMore(false);
+    window.scrollTo({ top: 0 });
     render();
-  }
+  } else if (!e.target.closest("#morePanel")) toggleMore(false);
 });
+document.addEventListener("keydown", (e) => { if (e.key === "Escape") toggleMore(false); });
 MatchEvents.bind(document, openMatch, closeModal);
 $("#btnUpdate").addEventListener("click", async () => {
   const btn = $("#btnUpdate"), bar = $("#updateBar");

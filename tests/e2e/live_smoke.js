@@ -20,12 +20,13 @@ async function run(name, viewport) {
     const t = await page.evaluate(() => document.body.innerText);
     for (const m of t.matchAll(/Hata:\s*\{[^\n]*|undefined|\[object Object\]|NaN/g)) note("text", m[0]);
   };
-  const tab = async (t) => { step = "tab " + t; await page.click(`nav.tabs [data-tab="${t}"]`); await page.waitForTimeout(1500); await check(); await shot(t); };
+  const tab = async (t) => { step = "tab " + t; const b = page.locator(`nav.tabs [data-tab="${t}"]`); if (!(await b.isVisible())) await page.click("#moreBtn"); await b.click(); await page.waitForTimeout(1500); await check(); await shot(t); };
   const tryDo = async (label, fn) => { step = label; try { await fn(); } catch (e) { note("exception", e.message.split("\n").slice(0, 4).join(" | ")); } };
 
   await page.goto(BASE, { waitUntil: "networkidle" });
   await tryDo("age gate", async () => { await page.click(".age-yes", { timeout: 5000 }); await page.waitForTimeout(500); });
   await check(); await shot("home");
+  await tryDo("today summary", async () => { await page.waitForSelector("#today .today-grid", { timeout: 15000 }); if (!(await page.$("#themeToggle"))) note("missing", "tema düğmesi"); await page.click("#themeToggle"); await shot("home-toggled-theme"); await page.click("#themeToggle"); });
 
   step = "matches";
   const chips = await page.$$eval("#leagueChips .chip[data-league]:not(.small-league-chip)", (e) => e.map((x) => x.dataset.league));
@@ -74,6 +75,7 @@ async function run(name, viewport) {
     await check();
   });
   await tab("coupon-history");
+  await tab("report");
   await tab("value");
   await tryDo("value filters", async () => {
     await page.selectOption("#valueDays", { index: 0 }).catch(() => {});
