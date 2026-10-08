@@ -245,6 +245,11 @@ if __name__ == "__main__":
     p = argparse.ArgumentParser(description="Maç ve haber verilerini güncelle")
     p.add_argument("--league", action="append", choices=list(LEAGUES), help="Sadece bu lig(ler)")
     p.add_argument("--no-news", action="store_true", help="Haberleri atla")
+    p.add_argument("--quick", action="store_true", help="Yalnız hızlı artımlı güncelleme (iddaa + son günler)")
     p.add_argument("--wait-lock", type=int, default=120, help="Kilit doluysa en çok kaç sn beklensin")
     a = p.parse_args()
+    if a.quick:
+        res = run_quick_update()
+        print(res.get("status"))
+        sys.exit(1 if res.get("status") == "error" else 0)
     sys.exit(1 if run_update(a.league, with_news=not a.no_news, wait_lock_seconds=a.wait_lock) == "error" else 0)

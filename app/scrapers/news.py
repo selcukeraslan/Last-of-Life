@@ -110,7 +110,7 @@ def fetch_team_news(team: str, lang: str, limit: int = 25) -> list[dict]:
     return items
 
 
-def sync_news(conn, days_ahead: int = 10, progress=None) -> int:
+def sync_news(conn, days_ahead: int = 10, progress=None, budget_sec: float | None = 900) -> int:
     """Önümüzdeki maçları olan takımlar için haberleri günceller."""
     now = datetime.now(timezone.utc)
     rows = conn.execute(
@@ -121,7 +121,12 @@ def sync_news(conn, days_ahead: int = 10, progress=None) -> int:
     # Kupa takımlarının haberi kendi liglerinden gelir (kupa modeli onları birleştirir); ayrıca çekilmez
     rows = [r for r in rows if not is_cup(r["league"])]
     total = 0
+    started = time.monotonic()
     for i, r in enumerate(rows, 1):
+        if budget_sec and time.monotonic() - started > budget_sec:
+            if progress:
+                progress(f"Haber süre sınırı doldu ({i - 1}/{len(rows)}); kalanlar sonraki turda")
+            break
         lang = LEAGUES[r["league"]]["lang"]
         if progress:
             progress(f"Haberler ({i}/{len(rows)}): {r['team']}")

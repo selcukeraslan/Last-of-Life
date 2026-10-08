@@ -1,10 +1,11 @@
 name: Veri güncelle
 
+# Ağır tam (3 saatte bir; sık güncelleme quick.yml'de). Haber çekimi 15 dk ile sınırlıdır.
 # Ağır tam güncelleme (tüm ligler + haberler + iddaa oranları) ortak Supabase veritabanına yazılır.
 # Sitedeki "Verileri güncelle" düğmesi yalnız hızlı artımlı güncelleme yapar; geri kalanı bu iş yapar.
 on:
   schedule:
-    - cron: "*/30 * * * *"
+    - cron: "5 */3 * * *"
   workflow_dispatch:
     inputs:
       news:
@@ -19,7 +20,7 @@ concurrency:
 jobs:
   update:
     runs-on: ubuntu-latest
-    timeout-minutes: 40
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -28,10 +29,12 @@ jobs:
           cache: pip
       - run: pip install -r requirements.txt
       - name: Güncelle
+        timeout-minutes: 40
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python -m app.updater ${{ github.event_name == 'workflow_dispatch' && !inputs.news && '--no-news' || '' }}
       - name: Model karnesini yenile
+        timeout-minutes: 10
         continue-on-error: true
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
