@@ -294,6 +294,7 @@ function renderSmallMatch(m) {
   $("#modalBody").innerHTML = `
     <button class="close" onclick="closeModal()">×</button>
     <div class="muted" style="text-align:center">${esc(m.league_name)} · ${fmtDay(m.kickoff)} ${fmtTime(m.kickoff)}</div>
+    <div style="text-align:center"><a class="muted" href="/mac/${encodeURIComponent(m.id)}" target="_blank" rel="noopener">🔗 Paylaş linki</a></div>
     <div class="mhead">
       <div class="team"><h3>${esc(m.home)}</h3><div class="muted">Takım verisi yok</div></div>
       <div><div class="vs">vs</div><div class="muted">başlama saati</div></div>
@@ -548,4 +549,6 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
   await loadLeagues();
   render();
   pollUpdate();
+  const sharedMatch = new URLSearchParams(location.search).get("match");  // SEO sayfasından gelen /?match=<id>
+  if (sharedMatch) openMatch(sharedMatch);
 })();

@@ -23,6 +23,7 @@ from .model.coupons import TZ, build_coupons
 from .model.ratings import parse_ts
 from .model.small_leagues import market_favorite
 from .value_bets import router as value_bets_router
+from .seo import router as seo_router
 
 AUTO_UPDATE_HOURS = 6
 UPDATE_PER_MINUTE = 5
@@ -42,6 +43,7 @@ async def lifespan(_app):
 app = FastAPI(title="İddia Oran Öneri", lifespan=lifespan)
 ops.install(app)
 app.include_router(pwa.router)  # /manifest.webmanifest, /sw.js
+app.include_router(seo_router)
 app.include_router(odds_history_router)
 app.include_router(match_insights_router)
 app.include_router(coupon_history_router)
