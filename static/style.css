@@ -187,3 +187,17 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
 .mr-scroll { overflow-x: auto; }
 .mr-kpis { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 @media (max-width: 700px) { .mr-kpis { grid-template-columns: 1fr; } }
+
+/* Maç detayı içgörüleri */
+.mi-bar { display: flex; align-items: center; gap: 8px; margin: 4px 0; font-size: 13px; }
+.mi-bl { flex: 0 0 72px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mi-track { flex: 1; height: 8px; background: var(--panel2); border-radius: 4px; overflow: hidden; }
+.mi-track i { display: block; height: 100%; border-radius: 4px; }
+.mi-form { display: flex; align-items: center; gap: 8px; padding: 3px 0; font-size: 13px; }
+.mi-form > span:nth-child(2) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.mi-res { width: 20px; height: 20px; border-radius: 50%; color: #fff; font-size: 11px; font-weight: 700; display: grid; place-items: center; flex: none; }
+.mi-news { padding: 6px 0; border-top: 1px solid var(--line); font-size: 13px; }
+.mi-news.inj { border-left: 3px solid var(--warn); padding-left: 8px; font-weight: 600; }
+.mi-sparks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
+.mi-sp { display: flex; flex-direction: column; gap: 2px; background: var(--panel2); border-radius: var(--r-sm); padding: 8px; }
+.mi-spark { width: 100%; height: 36px; }

@@ -38,6 +38,7 @@ async function run(name, viewport) {
     await page.click("#matches .card.match"); await page.waitForSelector("#modal:not(.hidden)");
     await page.waitForTimeout(2500);
     if ((await page.innerText("#modalBody")).trim().length < 80) note("empty", "main modal");
+    if (!(await page.$("#matchInsights .card"))) note("empty", "main modal içgörüler (form/gol/haber) yok");
     await check(); await shot("modal-main");
     await page.keyboard.press("Escape"); await page.waitForTimeout(300);
     if (await page.$("#modal:not(.hidden)")) { await page.click("#modal", { position: { x: 2, y: 2 } }); await page.waitForTimeout(300); }
