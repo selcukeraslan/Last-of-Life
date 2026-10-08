@@ -179,6 +179,7 @@
       </div>
       <p class="muted slip-note">Tutma ihtimali, seçimlerin model olasılıklarının çarpımıdır (seçimlerin birbirinden bağımsız olduğu varsayılır). Kupon bu tarayıcıda saklanır; oranlar zamanla değişebilir. Tahmindir, garanti değildir.</p>
     </div>`;
+    window.Extras?.slipExtras(el, s, data.stake);
     if (focus !== null) { const inp = q("#slipStake"); inp.focus(); inp.setSelectionRange(focus, focus); }
   }
 
@@ -207,7 +208,9 @@
     if (e.target.id !== "slipStake") return;
     data.stake = C.parseStake(e.target.value);
     save();
-    q("#slipResult").innerHTML = resultHtml(C.summarize(data.items, data.stake, Date.now()));
+    const sm = C.summarize(data.items, data.stake, Date.now());
+    q("#slipResult").innerHTML = resultHtml(sm);
+    const view = q("#slip"); if (view) window.Extras?.slipExtras(view, sm, data.stake);
   });
 
   // Başka sekmede/pencerede kupon değişirse burada da güncelle
