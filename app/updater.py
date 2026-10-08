@@ -249,6 +249,8 @@ if __name__ == "__main__":
     p.add_argument("--wait-lock", type=int, default=120, help="Kilit doluysa en çok kaç sn beklensin")
     a = p.parse_args()
     if a.quick:
+        import faulthandler
+        faulthandler.dump_traceback_later(150, exit=True)
         res = run_quick_update()
         print(res.get("status"))
         sys.exit(1 if res.get("status") == "error" else 0)

@@ -25,5 +25,6 @@ jobs:
       - name: Hızlı güncelle
         timeout-minutes: 5
         env:
+          PYTHONUNBUFFERED: "1"
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
         run: python -m app.updater --quick
