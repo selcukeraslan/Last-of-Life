@@ -2,3 +2,4 @@ fastapi>=0.110
 uvicorn[standard]>=0.29
 truststore>=0.9
 psycopg[binary]>=3.2
+argon2-cffi>=23.1
