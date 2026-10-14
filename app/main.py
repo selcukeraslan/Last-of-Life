@@ -9,7 +9,7 @@ from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import auth, odds_history, odds_log, ops, pwa, updater
+from . import auth, explain, odds_history, odds_log, ops, pwa, updater
 from . import live
 from .api_odds_history import router as odds_history_router
 from .config import LEAGUES, MODEL, STATIC_DIR, league_aliases, league_slug, resolve_league
@@ -69,6 +69,8 @@ def _attach_iddaa_odds(items: list[dict]) -> list[dict]:
         movements = odds_history.movements_for_matches(conn, [item["id"] for item in items])
     for item in blended:
         item["iddaa_movement"] = movements.get(str(item["id"]), {})
+        if "pick" in item:
+            item["summary"] = explain.summarize(item)
     return blended
 
 

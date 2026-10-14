@@ -105,7 +105,7 @@
   function oddsCell(r) {
     return `<b class="iddaa-odd">${r.odds.toFixed(2)}</b>` + (r.source === "iddaa"
       ? `<span class="src src-iddaa">iddaa</span>`
-      : `<span class="src src-claude">Claude oran</span><span class="claude-odd">iddaa oranı yok</span>`);
+      : `<span class="src src-claude">tahmini</span>`);
   }
   function rowHtml(r, dupIds) {
     const flags = [];
@@ -129,28 +129,26 @@
         : `<div class="slip-warn">⚠ ${name} maçından ${g.markets.length} seçim var (${mk}). Aynı maçın seçimleri birbirine bağlıdır; tutma ihtimali bağımsız varsayımıyla hesaplanan yaklaşık bir değerdir ve bahis sitelerinde bu birleşim kabul edilmeyebilir.</div>`);
     }
     if (s.startedCount) out.push(`<div class="slip-warn bad">⚠ ${s.startedCount} seçimin maçı başlamış; bunlar artık oynanamaz.</div>`);
-    if (s.claudeCount) out.push(`<div class="slip-warn info">ℹ ${s.claudeCount} seçimde iddaa oranı yok, Claude oranı kullanıldı. Bu gerçek bahis oranı değildir; kazanç ve EV buna göre tahmindir.</div>`);
+    if (s.claudeCount) out.push(`<div class="slip-warn info">ℹ ${s.claudeCount} seçimde iddaa oranı yok, tahmini oran kullanıldı. Bu gerçek bahis oranı değildir; kazanç buna göre tahmindir.</div>`);
     return out.join("");
   }
   function resultHtml(s) {
     if (s.stake === null) return `<p class="muted">Olası kazancı görmek için yatırılacak tutarı girin.</p>`;
-    const good = s.expectedValue >= 0;
     return `<div class="slip-result">
       <div><small>Olası kazanç</small><b class="slip-win">${money(s.payout)}</b></div>
       <div><small>Net kâr (tutarsa)</small><b>${money(s.profit)}</b></div>
-      <div><small>Beklenen net getiri (EV)</small><b style="color:var(--${good ? "good" : "bad"})">${s.expectedValue > 0 ? "+" : ""}${money(s.expectedValue)}</b></div></div>`;
+</div>`;
   }
   function summaryHtml(s) {
-    const evColor = s.ev >= 0 ? "good" : "bad";
     return `<div class="slip-stats">
       <div><small>Toplam oran</small><b>${s.totalOdds.toFixed(2)}</b></div>
-      <div><small>Model tutma ihtimali</small><b>${pct(s.totalProbability, s.totalProbability < 0.1 ? 1 : 0)}</b></div>
-      <div><small>EV (1 ₺ başına)</small><b style="color:var(--${evColor})">${s.ev > 0 ? "+" : ""}${(s.ev * 100).toFixed(1)}%</b></div></div>`;
+      <div><small>Tutma şansı</small><b>${pct(s.totalProbability, s.totalProbability < 0.1 ? 1 : 0)}</b></div>
+</div>`;
   }
   function sourceBadge(s) {
     if (s.source === "iddaa") return `<span class="badge b-info">oranlar: iddaa</span>`;
-    if (s.source === "claude") return `<span class="badge b-warn">oranlar: Claude oran</span>`;
-    return `<span class="badge b-info">oranlar: ${s.iddaaCount}/${s.count} iddaa, kalanı Claude oran</span>`;
+    if (s.source === "claude") return `<span class="badge b-warn">oranlar: tahmini</span>`;
+    return `<span class="badge b-info">oranlar: ${s.iddaaCount}/${s.count} iddaa, kalanı tahmini</span>`;
   }
 
   function renderView() {
@@ -167,7 +165,7 @@
     el.innerHTML = `<div class="card slip-card">
       <div class="row-between"><h3>Kuponum</h3><span>${sourceBadge(s)} <span class="badge b-good">${s.count} seçim</span></span></div>
       ${warningsHtml(s)}
-      <table><tr><th class="l">Maç</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Model</th><th></th></tr>${s.rows.map((r) => rowHtml(r, dupIds)).join("")}</table>
+      <table><tr><th class="l">Maç</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Şans</th><th></th></tr>${s.rows.map((r) => rowHtml(r, dupIds)).join("")}</table>
       ${summaryHtml(s)}
       <div class="slip-stake"><label>Yatırılacak tutar (₺) <input id="slipStake" type="text" inputmode="decimal" autocomplete="off" value="${data.stake === null ? "" : esc(String(data.stake).replace(".", ","))}" placeholder="örn. 100"></label></div>
       <div id="slipResult">${resultHtml(s)}</div>

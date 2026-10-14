@@ -38,18 +38,12 @@ async function renderCouponHistory() {
     <div class="ch-stats">
       <div class="card"><div class="muted">Banko tutma oranı</div><div class="ch-big">${chPct(banko.hit_rate)}</div><div class="muted">${banko.won}/${banko.won + banko.lost} kupon · seçim bazında ${chPct(banko.pick_hit_rate)} (${banko.picks_won}/${banko.picks_settled})</div></div>
       <div class="card"><div class="muted">Sürpriz tutan kupon</div><div class="ch-big">${surprise.won}</div><div class="muted">${surprise.won + surprise.lost} sonuçlanan kuponun ${surprise.won}'i · seçim bazında ${chPct(surprise.pick_hit_rate)}</div></div>
-      <div class="card"><div class="muted">Her gün ${h.stake} TL yatırsaydın</div><div class="ch-big ${chSign(total.profit)}">${chTL(total.profit)}</div><div class="muted">ROI ${chPct(total.roi, 1)} · yatırılan ${total.stake.toLocaleString("tr-TR")} TL</div></div>
+      <div class="card"><div class="muted">Her gün ${h.stake} TL yatırsaydın</div><div class="ch-big ${chSign(total.profit)}">${chTL(total.profit)}</div><div class="muted">Kâr oranı ${chPct(total.roi, 1)} · yatırılan ${total.stake.toLocaleString("tr-TR")} TL</div></div>
     </div>
     <div class="card"><h3>Her gün ${h.stake} TL yatırsaydın</h3>
-      <table><tr><th class="l">Kupon</th><th>Tutan/Sonuçlanan</th><th>Tutma</th><th>Yatırılan</th><th>Dönen</th><th>Kâr/Zarar</th><th>ROI</th></tr>
+      <table><tr><th class="l">Kupon</th><th>Tutan/Sonuçlanan</th><th>Tutma</th><th>Yatırılan</th><th>Dönen</th><th>Kâr/Zarar</th><th>Kâr oranı</th></tr>
       ${chSummaryRow("Banko", banko)}${chSummaryRow("Sürpriz", surprise)}${chSummaryRow("Toplam", total)}</table>
       <p class="muted">Her gün Banko ve Sürpriz kuponun her birine ${h.stake} TL, kaydedilen oranla; yalnız sonuçlanan kuponlar sayılır. Ertelenen/iptal maç oranı 1.00 kabul edilir.</p></div>
     <div class="card"><h3>Günlük liste</h3>${h.days.map((d) => `<div class="ch-day"><div class="row-between"><b>${fmtDay(d.date + "T12:00:00Z")}</b><span class="${chSign(d.profit)}">${chTL(d.profit)}</span></div>${chCoupon("banko", d.banko)}${chCoupon("surprise", d.surprise)}</div>`).join("")}
       ${h.total_days > h.days.length ? `<p class="muted">Son ${h.days.length} gün gösteriliyor (toplam ${h.total_days}).</p>` : ""}</div>`;
 }
-
-document.addEventListener("click", (e) => {
-  if (!e.target.closest('.tabs button[data-tab="coupon-history"]')) return;
-  $("#leagueChips").classList.add("hidden");  // sekme lige bağlı değil
-  renderCouponHistory().catch((err) => { $("#couponHistory").innerHTML = `<div class="card" style="color:var(--bad)">Hata: ${esc(err.message)}</div>`; });
-});

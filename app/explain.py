@@ -1,0 +1,152 @@
+"""Maç önerisi için herkesin anlayacağı özet: büyük seçim, düz Türkçe etiket, güven seviyesi ve 2-3 cümlelik gerekçe.
+Öneri mantığına dokunmaz; `pick`, `factors` ve `iddaa_odds` alanlarını okuyup metne çevirir."""
+
+LEVELS = {"Yüksek": 3, "Orta": 2, "Düşük": 1}
+_FALLBACK = "Modelin hesabına göre bu seçenek bu maç için en tutarlı görünüyor."
+
+
+def headline(market: str) -> str:
+    if market in ("1", "X", "2", "1X", "X2", "12"):
+        return f"MS {market}"
+    if market[:1] in ("Ü", "A") and market[1:2].isdigit():
+        return f"{market[1:]} {'Üst' if market[0] == 'Ü' else 'Alt'}"
+    return market
+
+
+def title(market: str, home: str = "", away: str = "") -> str:
+    fixed = {
+        "1": "Ev sahibi kazanır", "X": "Beraberlik", "2": "Deplasman kazanır",
+        "1X": "Ev sahibi kaybetmez", "X2": "Deplasman kaybetmez", "12": "Beraberlik olmaz",
+        "KG Var": "İki takım da gol atar", "KG Yok": "En az bir takım gol atamaz",
+        "Ev 0.5Ü": "Ev sahibi gol atar", "Dep 0.5Ü": "Deplasman gol atar",
+    }
+    if market in fixed:
+        return fixed[market]
+    if market[:1] in ("Ü", "A") and market[1:2].isdigit():
+        goals = int(float(market[1:]) + 0.5) if market[0] == "Ü" else int(float(market[1:]))
+        return f"{goals} veya daha fazla gol" if market[0] == "Ü" else f"En fazla {goals} gol"
+    return market
+
+
+def _count(form: list[dict], key: str) -> int:
+    return sum(1 for g in form if g.get("result") == key)
+
+
+def _venue(form: list[dict], v: str) -> list[dict]:
+    return [g for g in form if g.get("venue") == v]
+
+
+def _h2h_wins(h2h: list[dict], team: str) -> tuple[int, int]:
+    wins = 0
+    for h in h2h:
+        try:
+            a, b = (int(x) for x in h["score"].split("-"))
+        except (KeyError, ValueError):
+            continue
+        wins += (h["home"] == team and a > b) or (h["away"] == team and b > a)
+    return wins, len(h2h)
+
+
+def _form_fact(team: str, form: list[dict]) -> str | None:
+    n = len(form)
+    if n < 3:
+        return None
+    w = _count(form, "G")
+    if w * 2 >= n:
+        return f"{team} son {n} maçta {w} galibiyet aldı."
+    return None
+
+
+def _weak_fact(team: str, form: list[dict], venue: str) -> str | None:
+    games = _venue(form, venue)
+    lost = sum(1 for g in games if g["result"] == "M")
+    where = "deplasmanda" if venue == "D" else "evinde"
+    if len(games) >= 2 and lost * 2 > len(games):
+        count = "hepsini" if lost == len(games) else f"{lost} tanesini"
+        return f"{team} {where} son {len(games)} maçın {count} kaybetti."
+    if len(form) >= 3 and _count(form, "G") == 0:
+        return f"{team} son {len(form)} maçta hiç kazanamadı."
+    return None
+
+
+def _absence_fact(team: str, news: dict) -> str | None:
+    n = (news or {}).get("absences") or 0
+    return f"Haberlere göre {team} tarafında {n} oyuncu eksik (sakat ya da cezalı)." if n else None
+
+
+def _side_facts(market: str, home: str, away: str, f: dict) -> list[str]:
+    form_h, form_a = f["form"]["home"], f["form"]["away"]
+    news_h, news_a = f["news"]["home"], f["news"]["away"]
+    h2h = f.get("h2h") or []
+    if market in ("1", "1X"):
+        me, opp, form_me, form_opp, v_opp, news_me, news_opp = home, away, form_h, form_a, "D", news_h, news_a
+    else:
+        me, opp, form_me, form_opp, v_opp, news_me, news_opp = away, home, form_a, form_h, "E", news_a, news_h
+    wins, n = _h2h_wins(h2h, me)
+    facts = [_form_fact(me, form_me), _weak_fact(opp, form_opp, v_opp), _absence_fact(opp, news_opp)]
+    if n >= 2 and wins * 2 >= n:
+        facts.append(f"Aralarındaki son {n} maçın {wins} tanesini {me} kazandı.")
+    facts = [x for x in facts if x]
+    if market in ("1X", "X2"):
+        kept = sum(1 for g in form_me if g["result"] != "M")
+        if len(form_me) >= 3 and kept * 4 >= len(form_me) * 3:
+            facts.insert(0, f"{me} son {len(form_me)} maçın {kept} tanesinde yenilmedi.")
+    own = _absence_fact(me, news_me)
+    if own:
+        facts.append(own.replace("Haberlere göre", "Dikkat: haberlere göre"))
+    return facts
+
+
+def _draw_facts(home: str, away: str, f: dict) -> list[str]:
+    facts = []
+    gap = abs(f["form"]["home_ppg"] - f["form"]["away_ppg"])
+    if f["form"]["home"] and f["form"]["away"] and gap < 0.5:
+        facts.append("İki takımın son maçlardaki performansı birbirine çok yakın.")
+    h2h = f.get("h2h") or []
+    draws = sum(1 for h in h2h if h.get("score", "-").split("-")[0] == h.get("score", "-").split("-")[-1])
+    if len(h2h) >= 2 and draws * 3 >= len(h2h):
+        facts.append(f"Aralarındaki son {len(h2h)} maçın {draws} tanesi berabere bitti.")
+    return facts
+
+
+def _goal_facts(market: str, home: str, away: str, f: dict) -> list[str]:
+    games = f["form"]["home"] + f["form"]["away"]
+    if len(games) < 4:
+        return []
+    avg = sum(g["gf"] + g["ga"] for g in games) / len(games)
+    both = sum(1 for g in games if g["gf"] > 0 and g["ga"] > 0)
+    facts = []
+    if market[0] in ("Ü", "A"):
+        facts.append(f"{home} ve {away} son maçlarında maç başına ortalama {str(round(avg, 1)).replace('.', ',')} gol atıldı.")
+    else:
+        facts.append(f"İki takımın son {len(games)} maçının {both} tanesinde her iki takım da gol attı."
+                     if market == "KG Var" else
+                     f"İki takımın son {len(games)} maçının {len(games) - both} tanesinde en az bir takım gol atamadı.")
+    return facts
+
+
+def reason(item: dict) -> str:
+    pick = item.get("pick")
+    f = item.get("factors")
+    if not pick or not f:
+        return _FALLBACK
+    market, home, away = pick["market"], item["home"], item["away"]
+    if market in ("1", "2", "1X", "X2"):
+        facts = _side_facts(market, home, away, f)
+    elif market == "X":
+        facts = _draw_facts(home, away, f)
+    else:
+        facts = _goal_facts(market, home, away, f)
+    return " ".join(facts[:3]) if facts else _FALLBACK
+
+
+def summarize(item: dict) -> dict:
+    pick = item.get("pick")
+    if not pick:
+        return {"market": None, "headline": "Net öneri yok", "title": "Bu maçta güçlü bir seçenek göremedik",
+                "odds": None, "level": 1, "level_label": "Düşük", "reason": ""}
+    market = pick["market"]
+    label = item.get("confidence_label") or "Düşük"
+    return {"market": market, "headline": headline(market), "title": title(market, item["home"], item["away"]),
+            "odds": (item.get("iddaa_odds") or {}).get(market), "level": LEVELS.get(label, 1),
+            "level_label": label, "reason": reason(item)}

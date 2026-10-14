@@ -11,7 +11,7 @@ window.Extras = (() => {
 
   let favs = S.sanitizeFavs(read(FAV_KEY));
   let ledger = S.sanitizeLedger(read(LEDGER_KEY));
-  let sysK = 0, onlyFavs = false, lastUpcoming = [], notice = "";
+  let sysK = 0, sysOpen = false, onlyFavs = false, lastUpcoming = [], notice = "";
 
   // ---------- favoriler ----------
   const isFav = (t) => favs.includes(t);
@@ -95,7 +95,7 @@ window.Extras = (() => {
     el.innerHTML = `<div class="card"><div class="row-between"><h3>Kupon defteri</h3><span class="badge b-info">${s.total} kayıt · ${s.pending} bekliyor</span></div>
       <div class="slip-stats"><div><small>Toplam yatırım</small><b>${money(s.stake)}</b></div><div><small>Kazanç</small><b>${money(s.payout)}</b></div>
       <div><small>Net</small><b style="color:var(--${s.net >= 0 ? "good" : "bad"})">${signed(s.net)}</b></div>
-      <div><small>ROI</small><b>${s.roi === null ? "–" : (s.roi > 0 ? "+" : "") + (s.roi * 100).toFixed(1) + "%"}</b></div>
+      <div><small>Kâr oranı</small><b>${s.roi === null ? "–" : (s.roi > 0 ? "+" : "") + (s.roi * 100).toFixed(1) + "%"}</b></div>
       <div><small>Tuttu / Yattı</small><b>${s.won} / ${s.lost}</b></div></div>${lineChart(s.series)}
       <div class="slip-actions"><button type="button" class="btn" id="ledExport">Dışa aktar (JSON)</button><button type="button" class="btn" id="ledImport">İçe aktar</button>
       <input type="file" id="ledFile" accept="application/json,.json" class="hidden"></div>
@@ -133,9 +133,9 @@ window.Extras = (() => {
       <div><small>Kombinasyon başı</small><b>${s.perCombo === null ? "–" : money(s.perCombo)}</b></div>
       <div><small>Min. kazanç (≥1 tutarsa)</small><b>${s.minPayout === null ? "–" : money(s.minPayout)}</b></div>
       <div><small>Max. kazanç (hepsi)</small><b>${s.maxPayout === null ? "–" : money(s.maxPayout)}</b></div>
-      <div><small>Model: ≥${sysK} tutma ihtimali</small><b>${(s.hitProbability * 100).toFixed(s.hitProbability < 0.1 ? 1 : 0)}%</b></div>
-      ${s.expectedValue === null ? "" : `<div><small>Beklenen net (EV)</small><b style="color:var(--${s.expectedValue >= 0 ? "good" : "bad"})">${signed(s.expectedValue)}</b></div>`}</div>
-      <details><summary class="muted small">Kombinasyon oranları${s.count > 50 ? " (ilk 50)" : ""}</summary><table><tr><th class="l">Seçimler (sıra no)</th><th>Oran</th><th>Model</th></tr>${combos}</table></details>
+      <div><small>En az ${sysK} seçim tutma şansı</small><b>${(s.hitProbability * 100).toFixed(s.hitProbability < 0.1 ? 1 : 0)}%</b></div>
+</div>
+      <details><summary class="muted small">Kombinasyon oranları${s.count > 50 ? " (ilk 50)" : ""}</summary><table><tr><th class="l">Seçimler (sıra no)</th><th>Oran</th><th>Şans</th></tr>${combos}</table></details>
       <div class="slip-actions"><button type="button" class="btn" data-led-add="system">Sistemi deftere kaydet</button><button type="button" class="btn" data-led-add="combo">Kombine olarak kaydet</button></div>
       <p class="muted slip-note">Hesap seçimlerin bağımsız olduğunu varsayar. ${stake === null ? "Tutar girerseniz kazançlar görünür. " : ""}${esc(notice)}</p></div>`;
   }
@@ -144,7 +144,8 @@ window.Extras = (() => {
     let box = el.querySelector("#slipSystem");
     if (!box) { box = document.createElement("div"); box.id = "slipSystem"; el.appendChild(box); }
     const rows = summary.rows.filter((r) => r.odds);
-    box.innerHTML = systemHtml(rows, stake);
+    box.innerHTML = `<details class="detail"${sysOpen ? " open" : ""}><summary>Sistem kuponu (isteğe bağlı)</summary><div class="detail-body">${systemHtml(rows, stake)}</div></details>`;
+    box.querySelector("details").addEventListener("toggle", (e) => { sysOpen = e.target.open; });
     box._ctx = { rows, stake };
   }
 
