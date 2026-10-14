@@ -171,7 +171,7 @@ async function openMatch(id) {
          ${iddaaPick ? `<div><div class="hero-num ${iddaaPick >= pk.suggested ? "good" : ""}">${iddaaPick}</div><div class="muted">iddaa oranı</div></div>` : ""}
        </div>
        <div class="hero-foot">${confBadge(m.confidence_label, m.confidence_reason)}<span class="muted">${esc(m.confidence_reason)}</span>${iddaaPick ? `<span class="muted">${iddaaPick >= pk.suggested ? "iddaa oranı önerilen orandan yüksek, oynamaya değer." : "iddaa oranı önerilen orandan düşük."}</span>` : ""}</div>`
-    : `<div class="hero-label">Model önerisi</div><div class="hero-pick">Bu maç için belirgin bir öneri yok</div><div class="hero-foot">${confBadge(m.confidence_label)}</div>`;
+    : `<div class="hero-label">Model önerisi</div><div class="hero-pick">Bu maç için belirgin bir öneri yok</div><div class="hero-foot">${confBadge(m.confidence_label, m.confidence_reason)}<span class="muted">${esc(m.confidence_reason)}</span></div>`;
 
   const marketsRows = ["1", "X", "2", "1X", "X2", "Ü2.5", "A2.5", "KG Var", "KG Yok"].map((key) =>
     `<tr${pk && pk.market === key ? ' class="hl"' : ""}><td class="l"><b>${esc(key)}</b> <span class="muted">${esc(marketText(key, m))}</span></td><td>${pct(k[key].p)}</td><td>${k[key].suggested ?? "-"}</td><td>${m.iddaa_odds[key] ?? "-"}</td></tr>`).join("");
