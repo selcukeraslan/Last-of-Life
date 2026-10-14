@@ -91,8 +91,6 @@ td.l, th.l { text-align: left; }
 .mk .p { color: var(--muted); font-size: 12px; }
 .market-odds { margin-top: 5px; }
 .market-odds .iddaa-odd { font-size: 18px; }
-.mk input { width: 70px; margin-top: 4px; }
-.mk .ev { font-size: 12px; margin-top: 3px; }
 .hero { text-align: center; padding: 22px 16px; border-color: var(--accent2); }
 .hero-label { color: var(--muted); font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
 .hero-pick { font-size: 22px; font-weight: 700; margin: 6px 0 14px; }
@@ -195,9 +193,6 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
   .odd-move { white-space: normal; font-size: 10px; }
   .drop-row { flex-direction: column; align-items: flex-start; }
 }
-
-/* Değerli Oranlar sekmesi */
-.value-table .ev-pos { color: var(--good); }
 
 /* Model Karnesi */
 .mr-chart { width: 100%; max-width: 340px; display: block; margin: 0 auto; }
