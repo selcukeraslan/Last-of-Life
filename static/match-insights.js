@@ -1,4 +1,4 @@
-// Maç detayı ek içgörüler: form, H2H, gol istatistikleri, λ ve skor çubukları, 7 günlük haberler, oran mini grafiği.
+// Maç detayı ek içgörüler ("Detaylar" içinde): son maçlar, aralarındaki maçlar, gol istatistikleri, oran grafiği.
 // app.js'ten önce yüklenir; $, esc, api, pct, fmtDateTime çağrı anında app.js'ten gelir.
 const MI_RES = { G: "var(--good)", B: "var(--draw)", M: "var(--bad)" };
 
@@ -16,10 +16,10 @@ function miForm(list) {
 function miGoals(s) {
   if (!s) return `<span class="muted">veri yok</span>`;
   const f = (v) => (v == null ? "-" : v);
-  return `<div class="kv"><span>Attığı (ev / dep)</span><span class="h">${f(s.for_home)}</span><span class="a">${f(s.for_away)}</span>
-    <span>Yediği (ev / dep)</span><span class="h">${f(s.against_home)}</span><span class="a">${f(s.against_away)}</span>
-    <span>KG Var</span><span></span><b>%${s.btts}</b><span>Ü2.5</span><span></span><b>%${s.over25}</b>
-    <span>Gol yemeden</span><span></span><b>%${s.clean_sheet}</b></div><div class="muted" style="font-size:12px">${s.n} maç</div>`;
+  return `<div class="kv"><span>Attığı gol (evde / deplasmanda)</span><span class="h">${f(s.for_home)}</span><span class="a">${f(s.for_away)}</span>
+    <span>Yediği gol (evde / deplasmanda)</span><span class="h">${f(s.against_home)}</span><span class="a">${f(s.against_away)}</span>
+    <span>İki takım da gol attı</span><span></span><b>%${s.btts}</b><span>3+ gol olan maç</span><span></span><b>%${s.over25}</b>
+    <span>Gol yemeden bitirdi</span><span></span><b>%${s.clean_sheet}</b></div><div class="muted" style="font-size:12px">${s.n} maç</div>`;
 }
 
 function miNews(list) {
@@ -41,10 +41,10 @@ function miSpark(series, color) {
 function miOdds(markets) {
   const keys = MARKET_ORDER.filter((k) => markets[k] && markets[k].length > 1).slice(0, 6);
   if (!keys.length) return "";
-  return `<div class="card"><h3>Oran hareketi grafiği</h3><div class="mi-sparks">${keys.map((k) => {
+  return `<h4>Oran hareketi</h4><div class="mi-sparks">${keys.map((k) => {
     const s = markets[k], a = s[0].odd, b = s[s.length - 1].odd;
     return `<div class="mi-sp"><b>${esc(k)}</b>${miSpark(s, b < a ? "var(--good)" : "var(--bad)")}<span class="muted">${a.toFixed(2)} → ${b.toFixed(2)}</span></div>`;
-  }).join("")}</div></div>`;
+  }).join("")}</div>`;
 }
 
 async function renderMatchInsights(m) {
@@ -54,22 +54,12 @@ async function renderMatchInsights(m) {
   let d;
   try { d = await api(`/api/match/${encodeURIComponent(m.id)}/insights`); } catch (e) { return; }
   if (req !== state.matchReq || !$("#matchInsights")) return;
-  const maxL = Math.max(m.lambda_home, m.lambda_away, 1.5);
   el.innerHTML = `
-    <div class="card"><h3>Beklenen goller (λ) ve en olası skorlar</h3>
-      ${miBar(esc(m.home), m.lambda_home.toFixed(2), maxL, "var(--home)")}${miBar(esc(m.away), m.lambda_away.toFixed(2), maxL, "var(--away)")}
-      <h4>En olası 5 skor</h4>
-      ${(m.scores || []).slice(0, 5).map((s) => miBar(s.score, (s.p * 100).toFixed(1) + "%", m.scores[0].p, "var(--accent2)", s.p)).join("")}
-    </div>
-    <div class="grid2">
-      <div class="card"><h3>Son 5 maç</h3><b style="color:var(--home)">${esc(m.home)}</b>${miForm(d.form.home)}<b style="color:var(--away)">${esc(m.away)}</b>${miForm(d.form.away)}
-        <h4>Son 5 karşılaşma</h4>${d.h2h.length ? d.h2h.map((h) => `<div>${h.date} · ${esc(h.home)} <b>${h.score}</b> ${esc(h.away)}</div>`).join("") : `<span class="muted">veri yok</span>`}</div>
-      <div class="card"><h3>Gol istatistikleri</h3><b style="color:var(--home)">${esc(m.home)}</b>${miGoals(d.goals.home)}<b style="color:var(--away)">${esc(m.away)}</b>${miGoals(d.goals.away)}</div>
-    </div>
-    <div class="grid2">
-      <div class="card"><h3>${esc(m.home)} · son 7 gün</h3>${miNews(d.news.home)}</div>
-      <div class="card"><h3>${esc(m.away)} · son 7 gün</h3>${miNews(d.news.away)}</div>
-    </div>${miOdds(d.odds)}`;
+    <h4>Son 5 maç</h4>
+    <div class="grid2"><div><b style="color:var(--home)">${esc(m.home)}</b>${miForm(d.form.home)}</div><div><b style="color:var(--away)">${esc(m.away)}</b>${miForm(d.form.away)}</div></div>
+    <h4>Aralarındaki son maçlar</h4>${d.h2h.length ? d.h2h.map((h) => `<div>${h.date} · ${esc(h.home)} <b>${h.score}</b> ${esc(h.away)}</div>`).join("") : `<span class="muted">veri yok</span>`}
+    <h4>Gol istatistikleri</h4>
+    <div class="grid2"><div><b style="color:var(--home)">${esc(m.home)}</b>${miGoals(d.goals.home)}</div><div><b style="color:var(--away)">${esc(m.away)}</b>${miGoals(d.goals.away)}</div></div>`;
 }
 
 // Oyuncu gol atar: olasılık + adil oran; az veri işaretli.

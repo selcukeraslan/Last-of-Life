@@ -21,18 +21,17 @@
 
   function odds(pick) {
     const amount = esc(displayNumber(pick.odds));
-    const claude = esc(displayNumber(pick.claude_odds));
     return pick.odds_source === "iddaa"
-      ? `<b class="iddaa-odd">${amount}</b><span class="src src-iddaa">iddaa</span><span class="claude-odd">Claude oran: ${claude}</span>`
-      : `<b class="iddaa-odd">${amount}</b><span class="src src-claude">Claude oran</span><span class="claude-odd">iddaa oranı yok</span>`;
+      ? `<b class="iddaa-odd">${amount}</b><span class="src src-iddaa">iddaa</span>`
+      : `<b class="iddaa-odd">${amount}</b><span class="src src-claude">tahmini</span>`;
   }
 
   function source(coupon, picks) {
     if (!picks.length) return "";
     if (coupon.odds_source === "iddaa") return `<span class="badge b-info">oranlar: iddaa</span>`;
-    if (coupon.odds_source === "claude") return `<span class="badge b-warn">oranlar: Claude oran</span>`;
+    if (coupon.odds_source === "claude") return `<span class="badge b-warn">oranlar: tahmini</span>`;
     const iddaaPicks = numeric(coupon.iddaa_picks) ?? 0;
-    return `<span class="badge b-info">oranlar: ${Math.trunc(iddaaPicks)}/${picks.length} iddaa, kalanı Claude oran</span>`;
+    return `<span class="badge b-info">oranlar: ${Math.trunc(iddaaPicks)}/${picks.length} iddaa, kalanı tahmini</span>`;
   }
 
   function couponCard(coupon, title, badgeClass, share = null) {
