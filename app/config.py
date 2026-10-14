@@ -88,8 +88,12 @@ def resolve_league(value: str | None) -> str | None:
                if any(_league_token(alias) == token for alias in league_aliases(league))]
     return matches[0] if len(matches) == 1 else None
 
-# Geçmiş veri: bir önceki sezonun başından itibaren çekilir (Elo ısınması için)
-HISTORY_START = date(2025, 7, 15)
+# Geçmiş veri bu tarihten itibaren çekilir (2021-22 sezonundan beri; Elo ısınması, H2H ve
+# sezonlar arası güç hesapları için). Daha eski tarihe çekilirse eksik kısım bir sonraki
+# güncellemede otomatik doldurulur.
+HISTORY_START = date(2021, 7, 1)
+# Bu sürümden önce veritabanının kapsadığı ilk gün (eski kurulumlarda geriye doldurma sınırı)
+LEGACY_HISTORY_START = date(2025, 7, 15)
 # Bugünden kaç gün sonrasına kadar fikstür çekilsin
 FIXTURE_DAYS_AHEAD = 21
 

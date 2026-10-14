@@ -19,7 +19,7 @@ from ..db import get_meta, session, set_meta
 from . import predict as P
 from .blend import BlendEval
 from ..scrapers.news import TR_ALIASES
-from .ratings import (Elo, Strengths, form_score, last_match_before, parse_ts, season_start,
+from .ratings import (Elo, Strengths, form_score, new_season, last_match_before, parse_ts, season_start,
                       standings, team_form)
 
 _cache: dict = {}
@@ -143,12 +143,14 @@ class LeagueModel:
         n_h = st.n_weighted.get(home, 0)
         n_a = st.n_weighted.get(away, 0)
         data_q = min(1.0, min(n_h, n_a) / 15)
-        pmax = max(mk["markets"]["1"]["p"], mk["markets"]["X"]["p"], mk["markets"]["2"]["p"])
+        n_min = min(n_h, n_a)
+        pick = P.best_pick(mk["markets"])
         news_teams = sum(1 for t in (home, away) if news.get(t, {}).get("relevant", 0) > 0)
         out.update({
-            "pick": P.best_pick(mk["markets"]),
-            **P.confidence(data_q, pmax, news_teams),
+            "pick": pick,
+            **P.confidence(pick["p"] if pick else None, n_min, news_teams),
             "news_teams": news_teams,
+            "data_n": round(n_min, 2),
             "data_quality": round(data_q, 4),  # iddaa oranlarıyla harmanlarken güven yeniden hesaplanır
             "factors": {
                 "poisson": {"home": round(lh_p, 3), "away": round(la_p, 3),
@@ -220,8 +222,9 @@ def get_model(league: str) -> LeagueModel:
 
 
 # --- Geriye dönük test --------------------------------------------------------
-def backtest(league: str, min_history: int = 120, step: int = 1) -> dict:
+def backtest(league: str, min_history: int | None = None, step: int = 1) -> dict:
     """Her maçı, sadece o maçtan önceki verilerle tahmin edip gerçek sonuçla karşılaştırır.
+    Varsayılan olarak ilk sezon ısınma için kullanılır, test ikinci sezondan başlar.
     (Geçmiş haber verisi olmadığından haber etkisi bu testte yoktur.)
     Ana metrikler yalnız modeldir (harmansız). Kaydedilmiş iddaa oranı olan maçlar (odds_log) ayrıca
     `blend` altında model / harmanlı / yalnız piyasa olarak karşılaştırılır; kayıt yoksa `blend` boştur."""
@@ -232,6 +235,9 @@ def backtest(league: str, min_history: int = 120, step: int = 1) -> dict:
         except Exception:  # odds_log tablosu henüz yok (migration uygulanmadı)
             conn.rollback()
             logged = {}
+    if min_history is None:
+        min_history = next((i for i in range(1, len(done))
+                            if new_season(done[i - 1]["ts"], done[i]["ts"])), 120)
     if len(done) <= min_history:
         return {"league": league, "n": 0}
     blend_eval = BlendEval()
@@ -260,7 +266,8 @@ def backtest(league: str, min_history: int = 120, step: int = 1) -> dict:
             blend_eval.add(p, logged[m["id"]], hg, ag)
         for k in range(idx, min(idx + step, len(done))):
             elo.update(done[k])
-    return {"league": league, "n": n, "accuracy_1x2": round(hit / n, 3), "brier": round(brier / n, 3),
+    return {"league": league, "n": n, "from": done[min_history]["kickoff"][:10],
+            "accuracy_1x2": round(hit / n, 3), "brier": round(brier / n, 3),
             "logloss": round(logloss / n, 3), "accuracy_ou25": round(ou_hit / n, 3),
             "blend": blend_eval.result()}
 

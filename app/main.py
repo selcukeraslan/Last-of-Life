@@ -261,6 +261,7 @@ def _picks(days: int, min_conf: float, category: str):
                         "kickoff": p["kickoff"], "home": p["home"], "away": p["away"],
                         "pick": p["pick"], "confidence": p["confidence"],
                         "confidence_label": p["confidence_label"], "blend": p["blend"],
+                        "confidence_reason": p.get("confidence_reason"),
                         "iddaa_odds": p["iddaa_odds"], "iddaa_event_id": p["iddaa_event_id"],
                         "iddaa_updated_at": p["iddaa_updated_at"], "iddaa_movement": p["iddaa_movement"],
                         "score": p["pick"]["p"] * (0.5 + p["confidence"])})

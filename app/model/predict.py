@@ -53,21 +53,57 @@ def markets(mat: list[list[float]]) -> dict:
     return {"markets": out, "scores": out_scores}
 
 
-def confidence(data_q: float, pmax: float, news_teams: int | None = None) -> dict:
-    """Veri kalitesi (0-1) ve en olası 1X2 sonucunun olasılığından güven skoru ve etiketi.
+# --- Güven ----------------------------------------------------------------------
+# Kaynak: sürekli 0-1 skor. Skor = min(önerinin olasılığından, veri kapsamından gelen skor).
+# Etiket ve açıklama bu skordan türetilir (eşikler: 0.45 Orta, 0.70 Yüksek), böylece
+#   olasılık >= %62 Yüksek, %56-62 Orta, altı Düşük; ağırlıklı maç < 12 en fazla Orta, < 8 Düşük;
+#   ilgili haber yok -> en fazla Düşük, yalnız bir takımda haber var -> en fazla Orta.
+CONF_LABELS = ["Düşük", "Orta", "Yüksek"]
+CONF_CUTS = (0.45, 0.70)
+CONF_P = (0.33, 0.56, 0.62, 0.80)      # olasılık düğümleri -> skor 0, 0.45, 0.70, 1
+CONF_DATA = (0.0, 8.0, 12.0, 20.0)     # ağırlıklı maç düğümleri -> skor 0, 0.45, 0.70, 1
+CONF_RULE = ("Güven, önerinin olasılığına göre verilir (%62 ve üstü Yüksek, %56–62 Orta, altı Düşük); "
+             "takımlardan biri için yeterli maç verisi yoksa etiket bir ya da iki kademe sınırlanır; ilgili haber yoksa en fazla Düşük, yalnız bir takımda haber varsa en fazla Orta olur.")
+
+
+def _ramp(x: float, knots: tuple) -> float:
+    ys = (0.0, CONF_CUTS[0], CONF_CUTS[1], 1.0)
+    if x <= knots[0]:
+        return 0.0
+    for i in range(1, 4):
+        if x <= knots[i]:
+            return ys[i - 1] + (ys[i] - ys[i - 1]) * (x - knots[i - 1]) / (knots[i] - knots[i - 1])
+    return 1.0
+
+
+def confidence_label(level: float) -> str:
+    return CONF_LABELS[(level >= CONF_CUTS[0]) + (level >= CONF_CUTS[1])]
+
+
+def confidence(p: float | None, n_min: float, news_teams: int | None = None) -> dict:
+    """p: önerilen pazarın olasılığı (öneri yoksa None), n_min: iki takımdan az olanın (zaman ağırlıklı) maç sayısı.
     news_teams: son haber penceresinde ilgili haberi olan takım sayısı (0-2; None = bilinmiyor, sınır yok).
     Haber yoksa güven en fazla Düşük, tek takımda haber varsa en fazla Orta olur."""
-    conf = 0.6 * data_q + 0.4 * min(1.0, (pmax - 0.33) / 0.4)
-    reason = f"form/Elo/geçmiş verisi (veri kalitesi %{data_q * 100:.0f}, olasılık %{pmax * 100:.0f})"
+    if p is None:
+        return {"confidence": 0.0, "confidence_label": "Düşük",
+                "confidence_reason": "belirgin bir öneri yok"}
+    by_p, by_n = _ramp(p, CONF_P), _ramp(n_min, CONF_DATA)
+    level = math.floor(min(by_p, by_n) * 100 + 1e-9) / 100  # aşağı yuvarla: etiket eşiği geçmeden Orta/Yüksek olmasın
+    news_note = ""
     if news_teams is not None and news_teams < 2:
         cap, who = (0.44, "iki takımda da") if news_teams == 0 else (0.69, "takımlardan birinde")
-        if conf > cap:
-            conf = cap
-            reason += f"; {who} ilgili haber yok, güven sınırlandı"
+        if level > cap:
+            level, news_note = cap, f"; {who} ilgili haber yok, güven sınırlandı"
         elif news_teams == 0:
-            reason += "; iki takımda da ilgili haber yok"
-    return {"confidence": round(conf, 2), "confidence_reason": reason,
-            "confidence_label": "Yüksek" if conf >= 0.7 else "Orta" if conf >= 0.45 else "Düşük"}
+            news_note = "; iki takımda da ilgili haber yok"
+    label = confidence_label(level)
+    if by_n < by_p and confidence_label(by_n) != confidence_label(by_p):
+        reason = f"olasılık %{p * 100:.0f}, ama veri az (~{n_min:.0f} maç) olduğu için sınırlandı"
+    elif n_min >= CONF_DATA[2]:
+        reason = f"olasılık %{p * 100:.0f}, veri yeterli (~{n_min:.0f} maç)"
+    else:
+        reason = f"olasılık %{p * 100:.0f} (~{n_min:.0f} maç veri)"
+    return {"confidence": level, "confidence_label": label, "confidence_reason": reason + news_note}
 
 
 # Öneri üretirken bakılan pazarlar ve kısa açıklamaları

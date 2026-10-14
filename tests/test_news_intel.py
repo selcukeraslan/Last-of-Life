@@ -64,15 +64,15 @@ class MitigationTest(unittest.TestCase):
 
 class NewsConfidenceTest(unittest.TestCase):
     def test_no_news_caps_at_low_with_reason(self):
-        c = confidence(1.0, 0.8, news_teams=0)
+        c = confidence(0.8, 20, news_teams=0)
         self.assertEqual(c["confidence_label"], "Düşük")
         self.assertIn("haber yok", c["confidence_reason"])
 
     def test_one_team_news_caps_at_medium(self):
-        self.assertEqual(confidence(1.0, 0.8, news_teams=1)["confidence_label"], "Orta")
+        self.assertEqual(confidence(0.8, 20, news_teams=1)["confidence_label"], "Orta")
 
     def test_both_teams_news_keeps_level(self):
-        self.assertEqual(confidence(1.0, 0.8, news_teams=2)["confidence_label"], "Yüksek")
+        self.assertEqual(confidence(0.8, 20, news_teams=2)["confidence_label"], "Yüksek")
 
 
 if __name__ == "__main__":

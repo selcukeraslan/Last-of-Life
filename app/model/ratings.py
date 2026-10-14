@@ -5,7 +5,13 @@ from datetime import datetime
 
 from ..config import MODEL
 
-SEASON_GAP_DAYS = 40  # bu kadar maçsız gün = yeni sezon
+SEASON_GAP_DAYS = 40  # yaz aylarında bu kadar maçsız gün = yeni sezon
+
+
+def new_season(prev: datetime | None, t: datetime) -> bool:
+    """Uzun ara + yaz/sonbahar başlangıcı = yeni sezon. Ay şartı, 2022 Dünya Kupası gibi
+    sezon ortası uzun araların yeni sezon sayılmasını engeller."""
+    return prev is None or ((t - prev).days > SEASON_GAP_DAYS and t.month in (6, 7, 8, 9))
 
 
 def parse_ts(s: str) -> datetime:
@@ -22,7 +28,7 @@ def season_start(matches: list[dict]) -> datetime | None:
     prev = None
     for m in matches:
         t = m["ts"]
-        if prev is None or (t - prev).days > SEASON_GAP_DAYS:
+        if new_season(prev, t):
             start = t
         prev = t
     return start
@@ -43,7 +49,7 @@ class Elo:
         return 1 / (1 + 10 ** (-d / 400))
 
     def update(self, m: dict):
-        if self.last_ts and (m["ts"] - self.last_ts).days > SEASON_GAP_DAYS:
+        if self.last_ts and new_season(self.last_ts, m["ts"]):
             # sezon arası: herkesi biraz ortalamaya çek
             k = MODEL["elo_season_regress"]
             self.r = {t: v + (1500 - v) * k for t, v in self.r.items()}

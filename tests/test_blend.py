@@ -26,7 +26,7 @@ def model_markets(p1=0.5, px=0.25, p2=0.25, over=0.55, btts=0.5):
 def prediction(**kw):
     mk = model_markets(**kw)
     return {"id": "m1", "markets": mk, "pick": P.best_pick(mk), "data_quality": 1.0,
-            **P.confidence(1.0, max(mk["1"]["p"], mk["X"]["p"], mk["2"]["p"]))}
+            "data_n": 20, **P.confidence(P.best_pick(mk)["p"], 20)}
 
 
 class DevigTest(unittest.TestCase):
@@ -119,7 +119,8 @@ class BlendPredictionTest(unittest.TestCase):
         out = blend.blend_prediction(pred, odds, 0.8)
         self.assertTrue(out["blend"]["applied"])
         self.assertGreater(out["markets"]["1"]["p"], pred["markets"]["1"]["p"])
-        self.assertGreater(out["confidence"], pred["confidence"])
+        self.assertEqual(out["confidence"], P.confidence(out["pick"]["p"], 20)["confidence"])  # önerinin olasılığından
+        self.assertEqual(out["confidence_label"], P.confidence_label(out["confidence"]))
         self.assertEqual(out["pick"]["p"], P.best_pick(out["markets"])["p"])
         self.assertEqual(pred["markets"]["1"]["p"], 0.40)  # girdi değişmez
 

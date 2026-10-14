@@ -10,7 +10,8 @@ import time
 import urllib.request
 from datetime import date, datetime, timedelta, timezone
 
-from ..config import FIXTURE_DAYS_AHEAD, HISTORY_START, REQUEST_DELAY_SEC, USER_AGENT
+from ..config import (FIXTURE_DAYS_AHEAD, HISTORY_START, LEGACY_HISTORY_START, REQUEST_DELAY_SEC,
+                      USER_AGENT)
 from ..db import get_meta, set_meta
 
 URL = "https://www.espn.com/soccer/fixtures/_/date/{day}/league/{league}"
@@ -85,12 +86,8 @@ def upsert(conn, m: dict):
     )
 
 
-def sync_league(conn, league: str, progress=None) -> int:
-    """Ligi kaldığı yerden günceller. Dönen değer: işlenen maç sayısı."""
-    today = date.today()
-    end = today + timedelta(days=FIXTURE_DAYS_AHEAD)
-    done = get_meta(conn, f"espn_done_{league}")
-    day = max(HISTORY_START, date.fromisoformat(done)) if done else HISTORY_START
+def _walk(conn, league: str, day: date, end: date, progress=None, checkpoint=None) -> int:
+    """day..end aralığını haftalık pencerelerle çeker; her adımda checkpoint(day) çağrılır."""
     count = 0
     while day <= end:
         if progress:
@@ -114,10 +111,46 @@ def sync_league(conn, league: str, progress=None) -> int:
             day = days[-1]  # son gün eksik gelmiş olabilir, oradan devam et
         else:
             day += timedelta(days=1 if any(window.values()) else 3)
-        # kaldığı yeri kaydet (yarıda kesilirse baştan başlamasın); son 5 gün hep yeniden kontrol edilir
-        set_meta(conn, f"espn_done_{league}", min(day, today - timedelta(days=5)).isoformat())
+        if checkpoint:
+            checkpoint(day)
         conn.commit()
         time.sleep(REQUEST_DELAY_SEC)
+    return count
+
+
+def backfill_league(conn, league: str, progress=None) -> int:
+    """HISTORY_START ile veritabanının kapsadığı ilk gün arasındaki eksik geçmişi doldurur."""
+    covered = get_meta(conn, f"espn_from_{league}")
+    if covered is None:
+        if get_meta(conn, f"espn_done_{league}") is None:
+            return 0  # yeni kurulum: sync_league zaten HISTORY_START'tan başlar
+        covered = LEGACY_HISTORY_START.isoformat()
+    covered = date.fromisoformat(covered)
+    if covered <= HISTORY_START:
+        return 0
+    key = f"espn_backfill_{league}"
+    resume = get_meta(conn, key)
+    day = max(HISTORY_START, date.fromisoformat(resume)) if resume else HISTORY_START
+    n = _walk(conn, league, day, covered, progress,
+              lambda d: set_meta(conn, key, min(d, covered).isoformat()))
+    set_meta(conn, f"espn_from_{league}", HISTORY_START.isoformat())
+    conn.execute("DELETE FROM meta WHERE key=?", (key,))
+    return n
+
+
+def sync_league(conn, league: str, progress=None) -> int:
+    """Ligi kaldığı yerden günceller. Dönen değer: işlenen maç sayısı."""
+    today = date.today()
+    end = today + timedelta(days=FIXTURE_DAYS_AHEAD)
+    count = backfill_league(conn, league, progress)
+    done = get_meta(conn, f"espn_done_{league}")
+    if done is None:
+        set_meta(conn, f"espn_from_{league}", HISTORY_START.isoformat())
+    day = max(HISTORY_START, date.fromisoformat(done)) if done else HISTORY_START
+    # kaldığı yeri kaydet (yarıda kesilirse baştan başlamasın); son 5 gün hep yeniden kontrol edilir
+    count += _walk(conn, league, day, end, progress,
+                   lambda d: set_meta(conn, f"espn_done_{league}",
+                                      min(d, today - timedelta(days=5)).isoformat()))
     # Son 5 günü her seferinde yeniden kontrol et (ertelenen/yeni biten maçlar)
     set_meta(conn, f"espn_done_{league}", (today - timedelta(days=5)).isoformat())
     return count
