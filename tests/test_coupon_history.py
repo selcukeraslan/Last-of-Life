@@ -41,6 +41,15 @@ class ResultTest(unittest.TestCase):
             self.assertEqual(ch.pick_result(market, h, a), expected, (market, h, a))
         self.assertIsNone(ch.pick_result("İY/MS 1/1", 1, 0))
 
+    def test_handicap_line_is_added_to_home_team(self):
+        # iddaa: Handikap -2 -> ev sahibi 2 gol geride başlar. 3-0: 1 tutar; 2-0: X; 1-0: 2.
+        cases = [("Handikap -2 1", 3, 0, "won"), ("Handikap -2 1", 2, 0, "lost"), ("Handikap -2 X", 2, 0, "won"),
+                 ("Handikap -2 2", 1, 0, "won"), ("Handikap -2 2", 3, 0, "lost"), ("Handikap -1 1", 2, 0, "won"),
+                 ("Handikap -1 X", 1, 0, "won"), ("Handikap 1 1", 0, 1, "lost"), ("Handikap 1 X", 0, 1, "won"),
+                 ("Handikap 1 2", 0, 2, "won"), ("Handikap 2 1", 0, 1, "won")]
+        for market, h, a, expected in cases:
+            self.assertEqual(ch.pick_result(market, h, a), expected, (market, h, a))
+
     def test_coupon_status(self):
         self.assertEqual(ch.coupon_status(["won", "won"]), "won")
         self.assertEqual(ch.coupon_status(["won", "pending"]), "pending")
@@ -140,6 +149,32 @@ class SettleTest(DbCase):
         banko = self.history()["days"][0]["banko"]
         self.assertEqual({p["match_id"]: p["status"] for p in banko["picks"]}, {"1": "won", "2": "void", "3": "void"})
         self.assertEqual((banko["status"], banko["effective_odds"], banko["profit"]), ("won", 2.0, 100.0))
+
+
+class ResettleTest(DbCase):
+    def test_void_pick_on_finished_match_is_settled_again(self):
+        # Eski sürüm tanımadığı pazarı (handikap) 7 gün sonra "iptal" sayıyordu; maç bitmişse yeniden değerlendirilir.
+        self.freeze(day_coupons("2026-10-06", banko=[pick(1, "Handikap -1 1"), pick(2)]))
+        self.add_match(1, 3, 0)
+        self.add_match(2, 2, 0)
+        with db.session() as conn:
+            conn.execute("UPDATE saved_coupon_picks SET status='void' WHERE match_id='1'")
+            conn.execute("UPDATE saved_coupons SET status='won'")
+        self.assertEqual(self.settle(), {"picks": 2, "coupons": 1})
+        banko = self.history()["days"][0]["banko"]
+        self.assertEqual([p["status"] for p in banko["picks"]], ["won", "won"])
+
+
+    def test_postponed_void_is_not_reopened_when_played_later(self):
+        self.freeze(day_coupons("2026-10-06", banko=[pick(1), pick(2)]))
+        self.add_match(1, 0, 1)
+        self.add_match(2, 2, 0)
+        with db.session() as conn:
+            conn.execute("UPDATE saved_coupon_picks SET status='void' WHERE match_id='2'")
+            conn.execute("UPDATE matches SET kickoff='2026-10-20T12:00Z' WHERE id='2'")
+        self.settle()
+        self.assertEqual({p["match_id"]: p["status"] for p in self.history()["days"][0]["banko"]["picks"]},
+                         {"1": "lost", "2": "void"})
 
 
 class HistoryTest(DbCase):

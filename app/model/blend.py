@@ -7,6 +7,7 @@ w = MODEL["market_weight"]. Bir pazar grubunun oranı yoksa (veya tutarsızsa) o
 pazarlar birbiriyle tutarlı kalır. Beklenen goller (xG) ve skor olasılıkları model değeridir, harmanlanmaz.
 """
 import math
+import re
 
 from ..config import MODEL
 from ..scrapers import iddaa
@@ -94,11 +95,50 @@ def blend_prediction(pred: dict, iddaa_odds: dict, weight: float | None = None) 
         return {**pred, "blend": {"applied": False, "weight": w, "groups": []}}
     out = {**pred, "markets": markets, "blend": {"applied": True, "weight": w, "groups": groups}}
     if "pick" in pred:
-        out["pick"] = P.best_pick(markets)
+        out["pick"] = P.best_pick(markets, iddaa_odds)
     if "data_quality" in pred:
         pick = out.get("pick")
         n_min = pred.get("data_n", pred["data_quality"] * 15)
         out.update(P.confidence(pick["p"] if pick else None, n_min, pred.get("news_teams")))
+    return out
+
+
+_INT_LINE = re.compile(r"^İY [AÜ]\d+$")
+
+
+def extra_groups(extra: dict, iddaa_odds: dict) -> dict[str, list[str]]:
+    """Ek pazarlarda (handikap, İY, İY/MS, İY Alt/Üst .5) oranı tam olan, marjı temizlenebilir gruplar."""
+    groups = {}
+    for key in extra:
+        m = re.match(r"^Handikap (-?\d+(?:\.\d+)?) 1$", key)
+        if m:
+            groups[f"handicap {m.group(1)}"] = [f"Handikap {m.group(1)} {r}" for r in "1X2"]
+        m = re.match(r"^İY Ü(\d+\.5)$", key)
+        if m:
+            groups[f"iy-ou {m.group(1)}"] = [f"İY Ü{m.group(1)}", f"İY A{m.group(1)}"]
+    groups["iy"] = ["İY 1", "İY X", "İY 2"]
+    groups["iy-ms"] = [f"İY/MS {a}/{b}" for a in "1X2" for b in "1X2"]
+    return {n: ks for n, ks in groups.items() if all(k in extra and extra[k].get("p") is not None
+                                                     and k in iddaa_odds for k in ks)}
+
+
+def blend_extra_markets(extra: dict, iddaa_odds: dict, weight: float | None = None) -> dict:
+    """Ek pazarları da (handikap vb.) iddaa oranıyla harmanlar; yoksa piyasa farkı = model hatası olur
+    ve değer taraması en hatalı pazarı seçer. Harmanlanan pazarlara `model_p` / `market_p` eklenir."""
+    w = _clamp(MODEL["market_weight"] if weight is None else weight)
+    if w <= 0:
+        return extra
+    out = dict(extra)
+    for keys in extra_groups(extra, iddaa_odds).values():
+        market = devig([iddaa_odds[k] for k in keys])
+        if not market:
+            continue
+        model = [extra[k]["p"] for k in keys]
+        total = sum(model)
+        if not 0.98 <= total <= 1.02:  # tamsayı çizgide itme payı vb.: model dağılımı 1'e tamamlanmıyor
+            continue
+        for k, p, q in zip(keys, blend_probs([x / total for x in model], market, w), market):
+            out[k] = {**P.odds(p), "model_available": True, "model_p": extra[k]["p"], "market_p": round(q, 4)}
     return out
 
 
@@ -115,8 +155,8 @@ def blend_predictions(conn, items: list[dict]) -> list[dict]:
         blended = blend_prediction(item, odds) if "markets" in item else dict(item)
         blended["iddaa_odds"] = odds
         if "lambda_home" in blended and "lambda_away" in blended:
-            blended["extra_markets"] = extra_markets.for_match(
-                blended["lambda_home"], blended["lambda_away"], odds)
+            blended["extra_markets"] = blend_extra_markets(extra_markets.for_match(
+                blended["lambda_home"], blended["lambda_away"], odds), odds)
         blended["iddaa_event_id"] = source["event_id"] if source else None
         blended["iddaa_updated_at"] = source["updated_at"] if source else None
         out.append(blended)

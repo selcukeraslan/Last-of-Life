@@ -97,9 +97,11 @@ class SurpriseTest(unittest.TestCase):
         picks = select_surprise(entries)
         self.assertEqual(len(picks), 3)
 
-    def test_probability_band_and_markets(self):
-        entries = [entry(i, {"1": (0.40, 2.6), "X": (0.10, 9.0), "2": (0.65, 1.6)}) for i in range(1, 6)]
-        self.assertEqual(select_surprise(entries), [])  # "1" izinli değil, X p<0.20, 2 p>0.62
+    def test_probability_band(self):
+        entries = [entry(i, {"X": (0.10, 9.0), "2": (0.65, 1.6)}) for i in range(1, 6)]
+        self.assertEqual(select_surprise(entries), [])  # X p<0.30, 2 p>0.62
+        entries = [entry(i, {"1": (0.40, 2.6)}) for i in range(1, 6)]
+        self.assertTrue(select_surprise(entries))  # tüm pazar aileleri izinli, bant içinde
 
 
 class CouponAlternativesTest(unittest.TestCase):

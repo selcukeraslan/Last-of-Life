@@ -267,6 +267,8 @@ def init_db():
         conn.executescript(odds_log.SCHEMA)
         from . import ops
         conn.executescript(ops.SCHEMA)
+        from .scrapers import espn_players
+        conn.executescript(espn_players.SCHEMA)
 
 
 def get_meta(conn, key, default=None):

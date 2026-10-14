@@ -282,10 +282,11 @@ async function openMatch(id, competitionId = null) {
       <div class="team">${img(m.away_logo)}<h3>${esc(m.away)}</h3></div>
     </div>
     <div class="card hero">${hero}</div>
-    ${detail("Detaylar", `<h4>Diğer seçenekler</h4>${markets}<h4>Takımlar</h4>${compare}<div id="matchInsights"></div><h4>Haberler</h4>${news}`)}`;
+    ${detail("Detaylar", `<h4>Diğer seçenekler</h4>${markets}<h4>Takımlar</h4>${compare}<div id="matchInsights"></div><div id="matchPlayers"></div><h4>Haberler</h4>${news}`)}`;
   $("#modal").classList.remove("hidden");
   renderOddsHistory(m);
   renderMatchInsights(m);
+  renderMatchPlayers(m);
 }
 function closeModal() { state.matchReq += 1; $("#modal").classList.add("hidden"); }
 window.closeModal = closeModal;

@@ -106,20 +106,24 @@ def confidence(p: float | None, n_min: float, news_teams: int | None = None) -> 
     return {"confidence": level, "confidence_label": label, "confidence_reason": reason + news_note}
 
 
-# Öneri üretirken bakılan pazarlar ve kısa açıklamaları
-# (A3.5 / Ü1.5 gibi neredeyse her maçta tutan, düşük bilgili pazarlar bilerek yok)
-PICK_MARKETS = ["1", "X", "2", "1X", "X2", "Ü2.5", "A2.5", "KG Var", "KG Yok"]
+# Öneri üretirken bakılan pazarlar (seçim kuralı: picks.py)
+PICK_MARKETS = ["1", "X", "2", "1X", "X2", "12", "Ü2.5", "A2.5", "Ü3.5", "KG Var", "KG Yok"]
 
 
-def best_pick(mk: dict, min_odds: float = 1.40) -> dict | None:
-    """En olası ama anlamlı orana sahip pazarı seç (çok düşük oranlı 'bedava' tahminleri ele)."""
-    best = None
+def best_pick(mk: dict, iddaa_odds: dict | None = None) -> dict | None:
+    """Kalibre olasılık + iddaa oranına göre değer birleşimiyle en iyi pazar (picks.score).
+    Olasılık < %55 veya oran çok düşükse öneri yok. Oran: iddaa varsa o, yoksa modelin önerdiği oran."""
+    from .picks import best_choice
+    iddaa_odds = iddaa_odds or {}
+    choices = []
     for key in PICK_MARKETS:
-        o = mk[key]
-        if o["suggested"] is None or o["suggested"] < min_odds:
+        o = mk.get(key)
+        if not o or o.get("p") is None or o.get("suggested") is None:
             continue
-        if best is None or o["p"] > best[1]["p"]:
-            best = (key, o)
+        theirs = iddaa_odds.get(key)
+        odds, src = (theirs, "iddaa") if theirs and theirs >= 1.01 else (o["suggested"], "claude")
+        choices.append({"market": key, "p": o["p"], "odds": odds, "odds_source": src, "o": o})
+    best = best_choice(choices)
     if not best:
         return None
-    return {"market": best[0], **best[1]}
+    return {"market": best["market"], **best["o"]}

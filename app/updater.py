@@ -139,6 +139,22 @@ def _invalidate_models():
     engine.invalidate()
 
 
+PLAYER_SYNC_LIMIT = 150      # tam güncellemede çekilecek en çok maç özeti
+PLAYER_SYNC_SECONDS = 240    # ve süre sınırı (geçmiş zamanla kendiliğinden dolar)
+
+
+def _sync_players():
+    """Oyuncu gol verisi (ESPN maç özetleri); hata güncellemeyi bozmaz (tablo yoksa atlanır)."""
+    try:
+        from .scrapers import espn_players
+        with session() as conn:
+            n = espn_players.sync_players(conn, PLAYER_SYNC_LIMIT, time.monotonic() + PLAYER_SYNC_SECONDS, _progress)
+        if n:
+            _progress(f"{n} maçın oyuncu istatistiği işlendi")
+    except Exception as exc:
+        _progress(f"Oyuncu istatistikleri alınamadı: {exc}")
+
+
 def _track_coupons(freeze: bool):
     """Kupon geçmişi: (tam güncellemede) bugünün kuponunu dondurur, biten maçlara göre işaretler.
     Hata güncellemeyi bozmaz."""
@@ -222,6 +238,7 @@ def run_update(leagues=None, with_news=True, wait_lock_seconds: int = 0) -> str:
             if with_news:
                 n = news.sync_news(conn, progress=_progress)
                 _progress(f"{n} haber işlendi")
+        _sync_players()
         _progress("Güncelleme tamamlandı")
     except Exception as exc:  # arayüzde göstermek için
         error = str(exc)
