@@ -72,7 +72,7 @@ async function renderMatchPlayers(m) {
   if (req !== state.matchReq || !$("#matchPlayers")) return;
   const side = (name, color, s) => `<b style="color:${color}">${esc(name)}</b>` + (!s.available || !s.players.length
     ? `<div class="muted">Yeterli oyuncu verisi yok</div>`
-    : `<table><tr><th class="l">Oyuncu</th><th>Olasılık</th><th>Adil oran</th></tr>${s.players.map((p) =>
+    : `<table><tr><th class="l">Oyuncu</th><th>Olasılık</th><th>Oran</th></tr>${s.players.map((p) =>
       `<tr><td class="l">${esc(p.name)} <span class="muted">${esc(p.position || "")}</span>${p.low_data ? ` <span class="badge b-warn" title="${p.apps} maç, ${p.minutes} dk">Az veri</span>` : ""}</td><td>${pct(p.p)}</td><td>${p.fair}</td></tr>`).join("")}</table>`);
-  el.innerHTML = `<div class="card"><h3>Oyuncu gol atar</h3><div class="grid2"><div>${side(m.home, "var(--home)", d.home)}</div><div>${side(m.away, "var(--away)", d.away)}</div></div><div class="muted" style="font-size:12px">${esc(d.note || "")}</div></div>`;
+  el.innerHTML = `<div><h4>Gol atar mı?</h4><div class="grid2"><div>${side(m.home, "var(--home)", d.home)}</div><div>${side(m.away, "var(--away)", d.away)}</div></div><div class="muted" style="font-size:12px">${esc(d.note || "")}</div></div>`;
 }
