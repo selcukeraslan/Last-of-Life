@@ -15,7 +15,7 @@ from datetime import datetime, timedelta, timezone
 from ..config import LEAGUES, MODEL, NEWS_LOOKBACK_DAYS
 from ..db import get_meta, session, set_meta
 from . import predict as P
-from .ratings import (Elo, Strengths, form_score, last_match_before, parse_ts, season_start,
+from .ratings import (Elo, Strengths, new_season, form_score, last_match_before, parse_ts, season_start,
                       standings, team_form)
 
 _cache: dict = {}
@@ -194,11 +194,15 @@ def get_model(league: str) -> LeagueModel:
 
 
 # --- Geriye dönük test --------------------------------------------------------
-def backtest(league: str, min_history: int = 120, step: int = 1) -> dict:
+def backtest(league: str, min_history: int | None = None, step: int = 1) -> dict:
     """Her maçı, sadece o maçtan önceki verilerle tahmin edip gerçek sonuçla karşılaştırır.
+    Varsayılan olarak ilk sezon ısınma için kullanılır, test ikinci sezondan başlar.
     (Geçmiş haber verisi olmadığından haber etkisi bu testte yoktur.)"""
     with session() as conn:
         done, _ = _load(conn, league)
+    if min_history is None:
+        min_history = next((i for i in range(1, len(done))
+                            if new_season(done[i - 1]["ts"], done[i]["ts"])), 120)
     if len(done) <= min_history:
         return {"league": league, "n": 0}
     base = LeagueModel(league, [], [], {})
@@ -224,7 +228,8 @@ def backtest(league: str, min_history: int = 120, step: int = 1) -> dict:
         ou_hit += int((p["Ü2.5"]["p"] >= 0.5) == (hg + ag >= 3))
         for k in range(idx, min(idx + step, len(done))):
             elo.update(done[k])
-    return {"league": league, "n": n, "accuracy_1x2": round(hit / n, 3), "brier": round(brier / n, 3),
+    return {"league": league, "n": n, "from": done[min_history]["kickoff"][:10],
+            "accuracy_1x2": round(hit / n, 3), "brier": round(brier / n, 3),
             "logloss": round(logloss / n, 3), "accuracy_ou25": round(ou_hit / n, 3)}
 
 
