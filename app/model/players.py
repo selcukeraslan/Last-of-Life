@@ -27,7 +27,7 @@ TOP = 6
 
 
 def position_group(abbr: str | None) -> str:
-    a = (abbr or "").upper()
+    a = (abbr or "").upper().split("-")[0]  # CF-L / CD-R: yan eki at
     if a in ("G", "GK"):
         return "G"
     if a in ("SS", "ST", "CF", "F") or a.endswith("F") or a.startswith("F"):
