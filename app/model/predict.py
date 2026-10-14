@@ -79,13 +79,22 @@ def confidence_label(level: float) -> str:
     return CONF_LABELS[(level >= CONF_CUTS[0]) + (level >= CONF_CUTS[1])]
 
 
-def confidence(p: float | None, n_min: float) -> dict:
-    """p: önerilen pazarın olasılığı (öneri yoksa None), n_min: iki takımdan az olanın (zaman ağırlıklı) maç sayısı."""
+def confidence(p: float | None, n_min: float, news_teams: int | None = None) -> dict:
+    """p: önerilen pazarın olasılığı (öneri yoksa None), n_min: iki takımdan az olanın (zaman ağırlıklı) maç sayısı.
+    news_teams: son haber penceresinde ilgili haberi olan takım sayısı (0-2; None = bilinmiyor, sınır yok).
+    Haber yoksa güven en fazla Düşük, tek takımda haber varsa en fazla Orta olur."""
     if p is None:
         return {"confidence": 0.0, "confidence_label": "Düşük",
                 "confidence_reason": "belirgin bir öneri yok"}
     by_p, by_n = _ramp(p, CONF_P), _ramp(n_min, CONF_DATA)
     level = math.floor(min(by_p, by_n) * 100 + 1e-9) / 100  # aşağı yuvarla: etiket eşiği geçmeden Orta/Yüksek olmasın
+    news_note = ""
+    if news_teams is not None and news_teams < 2:
+        cap, who = (0.44, "iki takımda da") if news_teams == 0 else (0.69, "takımlardan birinde")
+        if level > cap:
+            level, news_note = cap, f"; {who} ilgili haber yok, güven sınırlandı"
+        elif news_teams == 0:
+            news_note = "; iki takımda da ilgili haber yok"
     label = confidence_label(level)
     if by_n < by_p and confidence_label(by_n) != confidence_label(by_p):
         reason = f"olasılık %{p * 100:.0f}, ama veri az (~{n_min:.0f} maç) olduğu için sınırlandı"
@@ -93,7 +102,7 @@ def confidence(p: float | None, n_min: float) -> dict:
         reason = f"olasılık %{p * 100:.0f}, veri yeterli (~{n_min:.0f} maç)"
     else:
         reason = f"olasılık %{p * 100:.0f} (~{n_min:.0f} maç veri)"
-    return {"confidence": level, "confidence_label": label, "confidence_reason": reason}
+    return {"confidence": level, "confidence_label": label, "confidence_reason": reason + news_note}
 
 
 # Öneri üretirken bakılan pazarlar ve kısa açıklamaları

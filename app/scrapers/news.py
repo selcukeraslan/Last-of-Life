@@ -9,6 +9,7 @@ from datetime import datetime, timedelta, timezone
 from email.utils import parsedate_to_datetime
 
 from ..config import LEAGUES, NEWS_LOOKBACK_DAYS, REQUEST_DELAY_SEC, USER_AGENT, is_cup
+from ..news_intel import classify
 from ..sentiment import analyze
 
 # ESPN İngilizce/ASCII isimlerini Türkçe haber aramasında daha iyi sonuç veren hallere çevirir
@@ -96,6 +97,11 @@ def fetch_team_news(team: str, lang: str, limit: int = 25) -> list[dict]:
             pub = datetime.now(timezone.utc)
         link = it.findtext("link") or title
         sentiment, injury = analyze(title)
+        c = classify(title, team, TR_ALIASES.get(team))
+        if c["category"] in ("out", "suspended", "doubt"):
+            injury = 1
+        elif c["category"] in ("return", "ignored"):
+            injury = 0  # "sakatlıktan döndü" / rakip haberi / söylenti sakatlık sayılmaz
         items.append({
             "id": hashlib.sha1((team + link).encode()).hexdigest(),
             "title": title,
@@ -104,6 +110,8 @@ def fetch_team_news(team: str, lang: str, limit: int = 25) -> list[dict]:
             "published": pub.isoformat(),
             "sentiment": sentiment,
             "injury": injury,
+            "category": c["category"],
+            "reason": c["rule"],
         })
         if len(items) >= limit:
             break
@@ -138,11 +146,12 @@ def sync_news(conn, days_ahead: int = 10, progress=None, budget_sec: float | Non
             continue
         for n in items:
             conn.execute(
-                """INSERT INTO news(id, league, team, title, link, source, published, sentiment, injury, fetched_at)
-                   VALUES(?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
-                   sentiment=excluded.sentiment, injury=excluded.injury""",
+                """INSERT INTO news(id, league, team, title, link, source, published, sentiment, injury, category, reason, fetched_at)
+                   VALUES(?,?,?,?,?,?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET
+                   sentiment=excluded.sentiment, injury=excluded.injury,
+                   category=excluded.category, reason=excluded.reason""",
                 (n["id"], r["league"], r["team"], n["title"], n["link"], n["source"], n["published"],
-                 n["sentiment"], n["injury"], now.isoformat()),
+                 n["sentiment"], n["injury"], n["category"], n["reason"], now.isoformat()),
             )
         total += len(items)
         conn.commit()

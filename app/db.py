@@ -38,6 +38,8 @@ CREATE TABLE IF NOT EXISTS news (
     published TEXT,
     sentiment REAL NOT NULL DEFAULT 0,
     injury INTEGER NOT NULL DEFAULT 0,
+    category TEXT,                  -- news_intel sınıfı (out, suspended, doubt, return, ...)
+    reason TEXT,                    -- sınıflamayı tetikleyen kalıp (açıklanabilirlik)
     fetched_at TEXT
 );
 CREATE INDEX IF NOT EXISTS ix_news_team ON news(league, team, published);
@@ -126,6 +128,27 @@ CREATE TABLE IF NOT EXISTS telegram_posts (
     sent_at TEXT,
     PRIMARY KEY (day, kind)
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE CHECK (email = lower(email)),
+    password_hash TEXT NOT NULL,    -- argon2id; düz metin şifre saklanmaz
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,    -- çerezdeki token'ın SHA-256 özeti
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL        -- 'YYYY-MM-DDTHH:MM:SSZ'
+);
+CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,    -- bağlantıdaki token'ın SHA-256 özeti
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_password_resets_user ON password_resets(user_id);
 """
 
 # Testler bu değeri None'a çekerek SQLite'a zorlar (gerçek veritabanına asla dokunmaz).
@@ -235,6 +258,10 @@ def init_db():
                                   ("is_small", "INTEGER NOT NULL DEFAULT 0")):
             if name not in columns:
                 conn.execute(f"ALTER TABLE iddaa_events ADD COLUMN {name} {declaration}")
+        news_cols = {r["name"] for r in conn.execute("PRAGMA table_info(news)").fetchall()}
+        for name in ("category", "reason"):
+            if name not in news_cols:
+                conn.execute(f"ALTER TABLE news ADD COLUMN {name} TEXT")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_iddaa_events_small_kickoff ON iddaa_events(is_small, kickoff)")
         conn.execute("UPDATE iddaa_events SET is_small=1 WHERE league LIKE 'small:%'")
         conn.executescript(odds_log.SCHEMA)

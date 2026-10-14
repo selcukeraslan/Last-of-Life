@@ -98,7 +98,7 @@ def blend_prediction(pred: dict, iddaa_odds: dict, weight: float | None = None) 
     if "data_quality" in pred:
         pick = out.get("pick")
         n_min = pred.get("data_n", pred["data_quality"] * 15)
-        out.update(P.confidence(pick["p"] if pick else None, n_min))
+        out.update(P.confidence(pick["p"] if pick else None, n_min, pred.get("news_teams")))
     return out
 
 

@@ -259,8 +259,7 @@ async function renderModel() {
 function newsList(n) {
   if (!n.items.length) return `<p class="muted">Son 7 günde haber bulunamadı.</p>`;
   return `<ul class="news">${n.items.map((i) => `<li>
-    ${i.injury ? `<span class="badge b-bad">sakatlık/ceza</span>` : ""}
-    <span class="badge ${i.sentiment > 0 ? "b-good" : i.sentiment < 0 ? "b-bad" : "b-info"}">${i.sentiment > 0 ? "+" : ""}${i.sentiment}</span>
+    <span class="badge ${i.counted ? (i.att_pct < 0 ? "b-bad" : "b-good") : "b-info"}" title="${esc(i.rule || "")}">${esc(i.label)}${i.counted && i.att_pct ? ` ${i.att_pct}%` : ""}</span>
     <a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a> <span class="muted">· ${esc(i.source)} · ${fmtDateTime(i.published)}</span></li>`).join("")}</ul>`;
 }
 
@@ -374,7 +373,8 @@ async function openMatch(id, competitionId = null) {
     ${row("Beklenen gol", m.lambda_home.toFixed(2), m.lambda_away.toFixed(2))}
     ${row("Form (son maçlar, maç başı puan)", f.form.home_ppg, f.form.away_ppg)}
     ${row("Güç puanı (Elo)", f.elo.home, f.elo.away)}
-    ${row("Sakatlık/ceza haberi", f.news.home.injuries, f.news.away.injuries)}
+    ${row("Haber etkisi (xG %)", f.news.home.att_pct, f.news.away.att_pct)}
+    ${row("Eksik oyuncu (haber)", f.news.home.absences, f.news.away.absences)}
     ${row("Dinlenme (gün)", f.rest.home_days, f.rest.away_days)}</div>`;
 
   const recent = `<div class="grid2"><div><b style="color:var(--home)">${esc(m.home)}</b>${formList(f.form.home)}</div>

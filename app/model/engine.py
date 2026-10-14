@@ -4,7 +4,7 @@ Akış (her maç için):
   1. Poisson güçleri  -> λ_ev, λ_dep (zaman ağırlıklı, ev/deplasman ayrı hücum-savunma)
   2. Elo farkı        -> beklenen gol üstünlüğü, Poisson ile log-uzayda harmanlanır
   3. Form (son 5 maç) -> küçük çarpan
-  4. Haber skoru      -> duygu + sakatlık/ceza haberleri, küçük çarpan
+  4. Haber            -> kural tabanlı sakatlık/ceza/teknik direktör vb. (oyuncu başı ~-%3, takım başı en çok -%12)
   5. Dinlenme süresi  -> 4 günden az dinlenen takıma küçük ceza
   6. Dixon-Coles düzeltmeli skor matrisi -> 1X2, Alt/Üst, KG, skor olasılıkları -> oranlar
 """
@@ -13,11 +13,12 @@ import threading
 import time
 from datetime import datetime, timedelta, timezone
 
-from .. import odds_log
+from .. import news_intel, odds_log
 from ..config import LEAGUES, MODEL, NEWS_LOOKBACK_DAYS, is_cup
 from ..db import get_meta, session, set_meta
 from . import predict as P
 from .blend import BlendEval
+from ..scrapers.news import TR_ALIASES
 from .ratings import (Elo, Strengths, form_score, new_season, last_match_before, parse_ts, season_start,
                       standings, team_form)
 
@@ -58,26 +59,17 @@ def _load(conn, league: str):
 
 
 def news_scores(conn, league: str, at: datetime) -> dict:
+    """Takım başına kural tabanlı haber etkisi (log-λ): att = kendi gol beklentisi, opp = rakibe giden etki.
+    Haber yoksa değerler 0'dır; model yine tahmin üretir, yalnız güven sınırlanır."""
     since = (at - timedelta(days=NEWS_LOOKBACK_DAYS)).isoformat()
     rows = conn.execute(
-        "SELECT team, title, link, source, published, sentiment, injury FROM news "
+        "SELECT team, title, link, source, published FROM news "
         "WHERE league=? AND published>=? ORDER BY published DESC", (league, since)).fetchall()
-    out: dict[str, dict] = {}
+    by_team: dict[str, list[dict]] = {}
     for r in rows:
-        d = out.setdefault(r["team"], {"items": [], "wsent": 0.0, "w": 0.0, "injuries": 0})
-        age = max(0.0, (at - parse_ts(r["published"])).total_seconds() / 86400)
-        w = 0.5 ** (age / 3)  # 3 günlük yarı ömür
-        d["wsent"] += w * r["sentiment"]
-        d["w"] += w
-        d["injuries"] += r["injury"]
-        d["items"].append(dict(r))
-    for d in out.values():
-        sent = d["wsent"] / d["w"] if d["w"] else 0.0
-        inj_pen = 0.15 * min(d["injuries"], 4)
-        d["sentiment"] = round(sent, 3)
-        d["score"] = round(max(-1.0, min(1.0, 0.6 * sent - inj_pen)), 3)
-        del d["wsent"], d["w"]
-    return out
+        by_team.setdefault(r["team"], []).append(dict(r))
+    return {team: news_intel.summarize(team, items, at, parse_ts, TR_ALIASES.get(team))
+            for team, items in by_team.items()}
 
 
 class LeagueModel:
@@ -125,9 +117,12 @@ class LeagueModel:
         log_a -= f_adj
 
         nh, na = news.get(home, {}), news.get(away, {})
-        n_adj = MODEL["news_coef"] * (nh.get("score", 0.0) - na.get("score", 0.0)) / 2
-        log_h += n_adj
-        log_a -= n_adj
+        # Kendi eksikleri/kadro durumu + rakibin durumunun bana etkisi
+        n_h = nh.get("att", 0.0) + na.get("opp", 0.0)
+        n_a = na.get("att", 0.0) + nh.get("opp", 0.0)
+        log_h += n_h
+        log_a += n_a
+        n_adj = n_h - n_a
 
         rest = {}
         for side, team in (("home", home), ("away", away)):
@@ -150,9 +145,11 @@ class LeagueModel:
         data_q = min(1.0, min(n_h, n_a) / 15)
         n_min = min(n_h, n_a)
         pick = P.best_pick(mk["markets"])
+        news_teams = sum(1 for t in (home, away) if news.get(t, {}).get("relevant", 0) > 0)
         out.update({
             "pick": pick,
-            **P.confidence(pick["p"] if pick else None, n_min),
+            **P.confidence(pick["p"] if pick else None, n_min, news_teams),
+            "news_teams": news_teams,
             "data_n": round(n_min, 2),
             "data_quality": round(data_q, 4),  # iddaa oranlarıyla harmanlarken güven yeniden hesaplanır
             "factors": {
@@ -165,7 +162,8 @@ class LeagueModel:
                         "lambda_home": round(lh_e, 3), "lambda_away": round(la_e, 3)},
                 "form": {"home": form_h, "away": form_a, "home_ppg": round(fs_h, 2), "away_ppg": round(fs_a, 2),
                          "log_adj": round(f_adj, 3)},
-                "news": {"home": _news_view(nh), "away": _news_view(na), "log_adj": round(n_adj, 3)},
+                "news": {"home": _news_view(nh), "away": _news_view(na), "log_adj": round(n_adj, 3),
+                         "home_log": round(n_h, 4), "away_log": round(n_a, 4)},
                 "rest": {"home_days": rest["home"], "away_days": rest["away"],
                          "home_adj": r_adj_h, "away_adj": r_adj_a},
                 "table": {"home": self.pos.get(home), "away": self.pos.get(away)},
@@ -199,9 +197,10 @@ def _logo(team_id):
 
 def _news_view(n: dict) -> dict:
     if not n:
-        return {"score": 0.0, "sentiment": 0.0, "injuries": 0, "items": []}
-    return {"score": n["score"], "sentiment": n["sentiment"], "injuries": n["injuries"],
-            "items": n["items"][:8]}
+        return {"att_pct": 0.0, "opp_pct": 0.0, "counts": {}, "events": [], "relevant": 0, "total": 0,
+                "absences": 0, "items": []}
+    return {k: n[k] for k in ("att_pct", "opp_pct", "counts", "events", "relevant", "total", "absences")} | {
+        "items": n["items"][:8]}
 
 
 def get_model(league: str) -> LeagueModel:

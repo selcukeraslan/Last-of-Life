@@ -221,3 +221,4 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
 
 @media (max-width: 700px) { .hero-stats { gap: 20px; } .hero-num { font-size: 24px; } }
 .conf-rule { font-size: 13px; margin: 0 0 10px; }
+.btn.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--line); text-decoration: none; display: inline-block; }
