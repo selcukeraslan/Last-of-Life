@@ -381,7 +381,7 @@ async function openMatch(id, competitionId = null) {
       <div><b style="color:var(--away)">${esc(m.away)}</b>${formList(f.form.away)}</div></div>
     <h4>Aralarındaki son maçlar</h4>
     ${f.h2h.length ? f.h2h.map((h) => `<div>${h.date} · ${esc(h.home)} <b>${h.score}</b> ${esc(h.away)}</div>`).join("") : `<span class="muted">Veri setinde yok</span>`}
-    <div id="matchInsights"></div>`;
+    <div id="matchInsights"></div><div id="matchPlayers"></div>`;
 
   const news = `<div class="grid2"><div><h4>${esc(m.home)}</h4>${newsList(f.news.home)}</div><div><h4>${esc(m.away)}</h4>${newsList(f.news.away)}</div></div>`;
 
@@ -406,6 +406,7 @@ async function openMatch(id, competitionId = null) {
   $("#modal").classList.remove("hidden");
   renderOddsHistory(m);
   renderMatchInsights(m);
+  renderMatchPlayers(m);
 }
 function closeModal() { state.matchReq += 1; $("#modal").classList.add("hidden"); }
 window.closeModal = closeModal;

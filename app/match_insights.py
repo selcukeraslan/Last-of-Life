@@ -6,6 +6,8 @@ from fastapi import APIRouter, HTTPException
 
 from . import odds_history, ops
 from .config import LEAGUES
+from .model import engine, players
+from .model.ratings import parse_ts
 from .db import session
 
 router = APIRouter(prefix="/api/match", tags=["match-insights"])
@@ -93,3 +95,22 @@ def insights(match_id: str):
             raise HTTPException(404, "Maç bulunamadı")
         return data
     return ops.cached(("match-insights", match_id), load)
+
+
+@router.get("/{match_id}/players")
+def player_goals(match_id: str):
+    """Oyuncu gol atar olasılıkları (geçmiş maç verisi + takımın beklenen golü). Veri/tablo yoksa available=false."""
+    def load():
+        with session() as conn:
+            m = conn.execute("SELECT * FROM matches WHERE id=?", (str(match_id),)).fetchone()
+            if not m or m["league"] not in LEAGUES:
+                raise HTTPException(404, "Maç bulunamadı")
+            m = dict(m)
+            pred = engine.get_model(m["league"]).predict(m["home"], m["away"], parse_ts(m["kickoff"]), detail=False)
+            try:
+                return players.for_match(conn, m, pred["lambda_home"], pred["lambda_away"])
+            except Exception:  # player_* tabloları henüz yok (migration uygulanmadı)
+                conn.rollback()
+                return {"home": {"available": False, "players": []}, "away": {"available": False, "players": []},
+                        "note": "Oyuncu verisi henüz hazır değil."}
+    return ops.cached(("match-players", match_id), load)
