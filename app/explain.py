@@ -135,8 +135,10 @@ def reason(item: dict) -> str:
         facts = _side_facts(market, home, away, f)
     elif market == "X":
         facts = _draw_facts(home, away, f)
-    else:
+    elif market in ("KG Var", "KG Yok") or market[:1] in ("Ü", "A") and market[1:2].isdigit():
         facts = _goal_facts(market, home, away, f)
+    else:  # 12, Ev/Dep 0.5Ü ve bilinmeyen pazarlar: yanlış gerekçe yerine genel cümle
+        facts = []
     return " ".join(facts[:3]) if facts else _FALLBACK
 
 

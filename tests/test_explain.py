@@ -40,6 +40,15 @@ class ExplainTest(unittest.TestCase):
         self.assertEqual(explain.title("A2.5"), "En fazla 2 gol")
         self.assertIn("ortalama", explain.summarize(item("Ü2.5"))["reason"])
 
+    def test_other_markets_get_neutral_reason(self):
+        for market in ("12", "Ev 0.5Ü", "Dep 0.5Ü"):
+            reason = explain.summarize(item(market))["reason"]
+            self.assertEqual(reason, explain._FALLBACK)
+            self.assertNotIn("atamadı", reason)
+
+    def test_btts_no_text(self):
+        self.assertIn("atamadı", explain.summarize(item("KG Yok"))["reason"])
+
     def test_no_pick(self):
         s = explain.summarize(item("1", pick=None))
         self.assertIsNone(s["market"])
