@@ -56,13 +56,14 @@ def markets(mat: list[list[float]]) -> dict:
 # --- Güven ----------------------------------------------------------------------
 # Kaynak: sürekli 0-1 skor. Skor = min(önerinin olasılığından, veri kapsamından gelen skor).
 # Etiket ve açıklama bu skordan türetilir (eşikler: 0.45 Orta, 0.70 Yüksek), böylece
-#   olasılık >= %62 Yüksek, %56-62 Orta, altı Düşük; ağırlıklı maç < 12 en fazla Orta, < 8 Düşük.
+#   olasılık >= %62 Yüksek, %56-62 Orta, altı Düşük; ağırlıklı maç < 12 en fazla Orta, < 8 Düşük;
+#   ilgili haber yok -> en fazla Düşük, yalnız bir takımda haber var -> en fazla Orta.
 CONF_LABELS = ["Düşük", "Orta", "Yüksek"]
 CONF_CUTS = (0.45, 0.70)
 CONF_P = (0.33, 0.56, 0.62, 0.80)      # olasılık düğümleri -> skor 0, 0.45, 0.70, 1
 CONF_DATA = (0.0, 8.0, 12.0, 20.0)     # ağırlıklı maç düğümleri -> skor 0, 0.45, 0.70, 1
 CONF_RULE = ("Güven, önerinin olasılığına göre verilir (%62 ve üstü Yüksek, %56–62 Orta, altı Düşük); "
-             "takımlardan biri için yeterli maç verisi yoksa etiket bir ya da iki kademe sınırlanır.")
+             "takımlardan biri için yeterli maç verisi yoksa etiket bir ya da iki kademe sınırlanır; ilgili haber yoksa en fazla Düşük, yalnız bir takımda haber varsa en fazla Orta olur.")
 
 
 def _ramp(x: float, knots: tuple) -> float:
