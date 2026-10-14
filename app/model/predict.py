@@ -53,10 +53,20 @@ def markets(mat: list[list[float]]) -> dict:
     return {"markets": out, "scores": out_scores}
 
 
-def confidence(data_q: float, pmax: float) -> dict:
-    """Veri kalitesi (0-1) ve en olası 1X2 sonucunun olasılığından güven skoru ve etiketi."""
+def confidence(data_q: float, pmax: float, news_teams: int | None = None) -> dict:
+    """Veri kalitesi (0-1) ve en olası 1X2 sonucunun olasılığından güven skoru ve etiketi.
+    news_teams: son haber penceresinde ilgili haberi olan takım sayısı (0-2; None = bilinmiyor, sınır yok).
+    Haber yoksa güven en fazla Düşük, tek takımda haber varsa en fazla Orta olur."""
     conf = 0.6 * data_q + 0.4 * min(1.0, (pmax - 0.33) / 0.4)
-    return {"confidence": round(conf, 2),
+    reason = f"form/Elo/geçmiş verisi (veri kalitesi %{data_q * 100:.0f}, olasılık %{pmax * 100:.0f})"
+    if news_teams is not None and news_teams < 2:
+        cap, who = (0.44, "iki takımda da") if news_teams == 0 else (0.69, "takımlardan birinde")
+        if conf > cap:
+            conf = cap
+            reason += f"; {who} ilgili haber yok, güven sınırlandı"
+        elif news_teams == 0:
+            reason += "; iki takımda da ilgili haber yok"
+    return {"confidence": round(conf, 2), "confidence_reason": reason,
             "confidence_label": "Yüksek" if conf >= 0.7 else "Orta" if conf >= 0.45 else "Düşük"}
 
 

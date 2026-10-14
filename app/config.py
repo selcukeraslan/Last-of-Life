@@ -108,7 +108,6 @@ MODEL = {
     "elo_weight": 0.7,  # Poisson ile Elo tahminini harmanlama ağırlığı
     "elo_goals_per_point": 0.0045,  # 100 Elo puanı ≈ 0.45 gol üstünlük
     "form_coef": 0.06,  # form farkının log(λ) etkisi
-    "news_coef": 0.08,  # haber skoru farkının log(λ) etkisi
     "rest_coef": 0.03,  # yorgunluk (<4 gün dinlenme) cezası
     "dc_rho": -0.06,  # Dixon-Coles düşük skor düzeltmesi
     "first_half_goal_share": 0.45,  # toplam xG'nin ilk yarıya ayrılan payı
