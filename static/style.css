@@ -201,3 +201,4 @@ footer { text-align: center; padding: 20px; font-size: 12px; }
 .mi-sparks { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 10px; }
 .mi-sp { display: flex; flex-direction: column; gap: 2px; background: var(--panel2); border-radius: var(--r-sm); padding: 8px; }
 .mi-spark { width: 100%; height: 36px; }
+.btn.ghost { background: var(--panel2); color: var(--text); border: 1px solid var(--line); text-decoration: none; display: inline-block; }

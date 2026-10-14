@@ -1,6 +1,7 @@
 """Altyapı yardımcıları: sonuç önbelleği, IP hız sınırı, sağlık kontrolü, yapılandırılmış hata günlüğü."""
 import json
 import logging
+import os
 import time
 from datetime import datetime, timezone
 
@@ -52,14 +53,19 @@ def client_ip(request: Request) -> str:
 
 
 def rate_limited(key: str, limit: int, window_seconds: int = 60) -> bool:
-    """DB tabanlı sabit pencere sayacı (serverless uyumlu). Sınır aşıldıysa True."""
-    window = int(time.time() // window_seconds)
+    """DB tabanlı sabit pencere sayacı (serverless uyumlu). Sınır aşıldıysa True.
+
+    `win` pencerenin başlangıç dakikasıdır; böylece farklı pencere boyutları aynı temizlik ölçüsünü
+    paylaşır. En uzun pencere 1 saattir (temizlik 65 dk'dan eskiyi siler).
+    """
+    now = int(time.time())
+    win = (now // window_seconds) * window_seconds // 60
     with session() as conn:
-        conn.execute("DELETE FROM rate_limits WHERE win < ?", (window - 5,))
+        conn.execute("DELETE FROM rate_limits WHERE win < ?", (now // 60 - 65,))
         conn.execute(
             "INSERT INTO rate_limits(key, win, hits) VALUES(?, ?, 1) "
-            "ON CONFLICT(key, win) DO UPDATE SET hits = rate_limits.hits + 1", (key, window))
-        row = conn.execute("SELECT hits FROM rate_limits WHERE key=? AND win=?", (key, window)).fetchone()
+            "ON CONFLICT(key, win) DO UPDATE SET hits = rate_limits.hits + 1", (key, win))
+        row = conn.execute("SELECT hits FROM rate_limits WHERE key=? AND win=?", (key, win)).fetchone()
     return row["hits"] > limit
 
 
@@ -111,7 +117,8 @@ def install(app):
     async def _cdn_cache(request: Request, call_next):
         response = await call_next(request)
         ttl = CDN_TTL.get(request.url.path)
-        if ttl and request.method == "GET" and response.status_code == 200 and "cache-control" not in response.headers:
+        public = os.environ.get("AUTH_REQUIRED") != "1"  # girişe bağlıysa CDN herkese açık önbellek tutmasın
+        if ttl and public and request.method == "GET" and response.status_code == 200 and "cache-control" not in response.headers:
             response.headers["Cache-Control"] = f"public, s-maxage={ttl}, stale-while-revalidate={ttl * 10}"
         return response
 

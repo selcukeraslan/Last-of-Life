@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="tr">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="robots" content="noindex">
+  <meta name="referrer" content="no-referrer">
+  <title>Giriş · İddia Oran</title>
+  <link rel="stylesheet" href="/static/style.css">
+  <link rel="stylesheet" href="/static/auth.css">
+</head>
+<body>
+  <header class="topbar"><div class="brand">⚽ <a href="/"><b>İddia Oran</b></a></div></header>
+  <section class="auth">
+    <form id="authForm" class="card auth-card" novalidate>
+      <h2 id="authTitle">Giriş yap</h2>
+      <label id="authEmailWrap">E-posta <input id="authEmail" type="email" autocomplete="email" maxlength="254"></label>
+      <label id="authPassWrap"><span id="authPassLabel">Şifre</span> <input id="authPass" type="password" maxlength="128"></label>
+      <div id="authMsg" class="auth-msg" role="status"></div>
+      <button id="authSubmit" class="btn" type="submit">Giriş yap</button>
+      <div id="authLinks" class="auth-links">
+        <a href="#login" data-mode="login">Giriş</a><span>·</span><a href="#register" data-mode="register">Kayıt ol</a><span>·</span><a href="#forgot" data-mode="forgot">Şifremi unuttum</a>
+      </div>
+    </form>
+  </section>
+  <script src="/static/auth.js"></script>
+</body>
+</html>

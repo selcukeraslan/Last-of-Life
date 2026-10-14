@@ -5,11 +5,11 @@ from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone, date
 from typing import Annotated
 
-from fastapi import FastAPI, HTTPException, Query, Request
+from fastapi import Depends, FastAPI, HTTPException, Query, Request
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
-from . import odds_history, odds_log, ops, pwa, updater
+from . import auth, odds_history, odds_log, ops, pwa, updater
 from . import live
 from .api_odds_history import router as odds_history_router
 from .config import LEAGUES, MODEL, STATIC_DIR, league_aliases, league_slug, resolve_league
@@ -42,6 +42,7 @@ async def lifespan(_app):
 
 app = FastAPI(title="İddia Oran Öneri", lifespan=lifespan)
 ops.install(app)
+auth.install(app)  # /api/auth/*, /giris; AUTH_REQUIRED=1 iken sayfa/veri kapısı
 app.include_router(pwa.router)  # /manifest.webmanifest, /sw.js
 app.include_router(seo_router)
 app.include_router(odds_history_router)
@@ -282,7 +283,7 @@ def _coupons(target):
     return result
 
 
-@app.post("/api/update")
+@app.post("/api/update", dependencies=[Depends(auth.require_admin)])
 def start_update(request: Request):
     """Hızlı artımlı güncelleme (iddaa oranları + ESPN son günler), istek içinde senkron çalışır.
     Son güncellemeden sonra 10 dk bekleme ve kilit vardır; ağır tam güncelleme cron'dadır."""
@@ -313,7 +314,7 @@ def get_backtest():
             "odds_log": odds_log.current_summary()}
 
 
-@app.post("/api/backtest")
+@app.post("/api/backtest", dependencies=[Depends(auth.require_admin)])
 def run_backtest():
     def job():
         try:

@@ -126,6 +126,27 @@ CREATE TABLE IF NOT EXISTS telegram_posts (
     sent_at TEXT,
     PRIMARY KEY (day, kind)
 );
+
+CREATE TABLE IF NOT EXISTS users (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    email TEXT NOT NULL UNIQUE CHECK (email = lower(email)),
+    password_hash TEXT NOT NULL,    -- argon2id; düz metin şifre saklanmaz
+    role TEXT NOT NULL DEFAULT 'user' CHECK (role IN ('user', 'admin')),
+    created_at TEXT NOT NULL
+);
+CREATE TABLE IF NOT EXISTS sessions (
+    token_hash TEXT PRIMARY KEY,    -- çerezdeki token'ın SHA-256 özeti
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL        -- 'YYYY-MM-DDTHH:MM:SSZ'
+);
+CREATE INDEX IF NOT EXISTS ix_sessions_user ON sessions(user_id);
+CREATE TABLE IF NOT EXISTS password_resets (
+    token_hash TEXT PRIMARY KEY,    -- bağlantıdaki token'ın SHA-256 özeti
+    user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+    expires_at TEXT NOT NULL,
+    used INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS ix_password_resets_user ON password_resets(user_id);
 """
 
 # Testler bu değeri None'a çekerek SQLite'a zorlar (gerçek veritabanına asla dokunmaz).
