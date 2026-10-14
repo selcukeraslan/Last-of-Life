@@ -96,8 +96,9 @@ def blend_prediction(pred: dict, iddaa_odds: dict, weight: float | None = None) 
     if "pick" in pred:
         out["pick"] = P.best_pick(markets)
     if "data_quality" in pred:
-        pmax = max(markets[k]["p"] for k in GROUPS["1x2"])
-        out.update(P.confidence(pred["data_quality"], pmax))
+        pick = out.get("pick")
+        n_min = pred.get("data_n", pred["data_quality"] * 15)
+        out.update(P.confidence(pick["p"] if pick else None, n_min))
     return out
 
 

@@ -53,11 +53,47 @@ def markets(mat: list[list[float]]) -> dict:
     return {"markets": out, "scores": out_scores}
 
 
-def confidence(data_q: float, pmax: float) -> dict:
-    """Veri kalitesi (0-1) ve en olası 1X2 sonucunun olasılığından güven skoru ve etiketi."""
-    conf = 0.6 * data_q + 0.4 * min(1.0, (pmax - 0.33) / 0.4)
-    return {"confidence": round(conf, 2),
-            "confidence_label": "Yüksek" if conf >= 0.7 else "Orta" if conf >= 0.45 else "Düşük"}
+# --- Güven ----------------------------------------------------------------------
+# Kaynak: sürekli 0-1 skor. Skor = min(önerinin olasılığından, veri kapsamından gelen skor).
+# Etiket ve açıklama bu skordan türetilir (eşikler: 0.45 Orta, 0.70 Yüksek), böylece
+#   olasılık >= %62 Yüksek, %56-62 Orta, altı Düşük; ağırlıklı maç < 12 en fazla Orta, < 8 Düşük.
+CONF_LABELS = ["Düşük", "Orta", "Yüksek"]
+CONF_CUTS = (0.45, 0.70)
+CONF_P = (0.33, 0.56, 0.62, 0.80)      # olasılık düğümleri -> skor 0, 0.45, 0.70, 1
+CONF_DATA = (0.0, 8.0, 12.0, 20.0)     # ağırlıklı maç düğümleri -> skor 0, 0.45, 0.70, 1
+CONF_RULE = ("Güven, önerinin olasılığına göre verilir (%62 ve üstü Yüksek, %56–62 Orta, altı Düşük); "
+             "takımlardan biri için yeterli maç verisi yoksa etiket bir ya da iki kademe sınırlanır.")
+
+
+def _ramp(x: float, knots: tuple) -> float:
+    ys = (0.0, CONF_CUTS[0], CONF_CUTS[1], 1.0)
+    if x <= knots[0]:
+        return 0.0
+    for i in range(1, 4):
+        if x <= knots[i]:
+            return ys[i - 1] + (ys[i] - ys[i - 1]) * (x - knots[i - 1]) / (knots[i] - knots[i - 1])
+    return 1.0
+
+
+def confidence_label(level: float) -> str:
+    return CONF_LABELS[(level >= CONF_CUTS[0]) + (level >= CONF_CUTS[1])]
+
+
+def confidence(p: float | None, n_min: float) -> dict:
+    """p: önerilen pazarın olasılığı (öneri yoksa None), n_min: iki takımdan az olanın (zaman ağırlıklı) maç sayısı."""
+    if p is None:
+        return {"confidence": 0.0, "confidence_label": "Düşük",
+                "confidence_reason": "belirgin bir öneri yok"}
+    by_p, by_n = _ramp(p, CONF_P), _ramp(n_min, CONF_DATA)
+    level = math.floor(min(by_p, by_n) * 100 + 1e-9) / 100  # aşağı yuvarla: etiket eşiği geçmeden Orta/Yüksek olmasın
+    label = confidence_label(level)
+    if by_n < by_p and confidence_label(by_n) != confidence_label(by_p):
+        reason = f"olasılık %{p * 100:.0f}, ama veri az (~{n_min:.0f} maç) olduğu için sınırlandı"
+    elif n_min >= CONF_DATA[2]:
+        reason = f"olasılık %{p * 100:.0f}, veri yeterli (~{n_min:.0f} maç)"
+    else:
+        reason = f"olasılık %{p * 100:.0f} (~{n_min:.0f} maç veri)"
+    return {"confidence": level, "confidence_label": label, "confidence_reason": reason}
 
 
 # Öneri üretirken bakılan pazarlar ve kısa açıklamaları
