@@ -123,15 +123,15 @@ class LeagueModel:
         if not detail:
             return out
 
-        n_h = st.n_weighted.get(home, 0)
-        n_a = st.n_weighted.get(away, 0)
-        data_q = min(1.0, min(n_h, n_a) / 15)
-        pmax = max(mk["markets"]["1"]["p"], mk["markets"]["X"]["p"], mk["markets"]["2"]["p"])
-        conf = 0.6 * data_q + 0.4 * min(1.0, (pmax - 0.33) / 0.4)
+        n_min = min(st.n_weighted.get(home, 0), st.n_weighted.get(away, 0))
+        pick = P.best_pick(mk["markets"])
+        conf = P.confidence(pick["p"], n_min) if pick else {"level": 0, "label": "Düşük",
+                                                            "reason": "belirgin öneri yok"}
         out.update({
-            "pick": P.best_pick(mk["markets"]),
-            "confidence": round(conf, 2),
-            "confidence_label": "Yüksek" if conf >= 0.7 else "Orta" if conf >= 0.45 else "Düşük",
+            "pick": pick,
+            "confidence": conf["level"],
+            "confidence_label": conf["label"],
+            "confidence_reason": conf["reason"],
             "factors": {
                 "poisson": {"home": round(lh_p, 3), "away": round(la_p, 3),
                             "league_home_avg": round(st.mu_h, 2), "league_away_avg": round(st.mu_a, 2),

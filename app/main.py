@@ -95,7 +95,7 @@ def standings(league: str):
 
 
 @app.get("/api/picks")
-def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0):
+def picks(days: int = Query(7, ge=1, le=21), min_conf: int = Query(0, ge=0, le=2)):
     """Tüm liglerden en güvenilir önerileri döndürür."""
     out = []
     for lg in LEAGUES:
@@ -105,7 +105,8 @@ def picks(days: int = Query(7, ge=1, le=21), min_conf: float = 0.0):
                             "kickoff": p["kickoff"], "home": p["home"], "away": p["away"],
                             "pick": p["pick"], "confidence": p["confidence"],
                             "confidence_label": p["confidence_label"],
-                            "score": p["pick"]["p"] * (0.5 + p["confidence"])})
+                            "confidence_reason": p["confidence_reason"],
+                            "score": p["confidence"] + p["pick"]["p"]})  # önce güven, sonra olasılık
     out.sort(key=lambda x: -x["score"])
     return _attach_iddaa_odds(out)
 

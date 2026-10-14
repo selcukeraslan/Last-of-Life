@@ -70,3 +70,27 @@ def best_pick(mk: dict, min_odds: float = 1.40) -> dict | None:
     if not best:
         return None
     return {"market": best[0], **best[1]}
+
+
+# --- Güven etiketi ------------------------------------------------------------
+# Tek kural: etiket, ÖNERİLEN pazarın olasılığına göre verilir; iki takımdan veri
+# kapsamı az olan, etiketi tavanla sınırlar. Böylece aynı veri kapsamında daha
+# yüksek olasılıklı bir öneri hiçbir zaman daha düşük güven alamaz.
+CONF_LABELS = ["Düşük", "Orta", "Yüksek"]
+CONF_P = (0.56, 0.62)       # olasılık eşikleri: <%56 Düşük, %56–62 Orta, ≥%62 Yüksek
+CONF_DATA = (8.0, 12.0)     # ağırlıklı maç sayısı: <8 en fazla Düşük, 8–12 en fazla Orta
+CONF_RULE = ("Güven, önerinin olasılığına göre verilir (%62 ve üstü Yüksek, %56–62 Orta, altı Düşük); "
+             "takımlardan biri için yeterli maç verisi yoksa etiket bir ya da iki kademe sınırlanır.")
+
+
+def confidence(p: float, n_min: float) -> dict:
+    """p: önerilen pazarın olasılığı, n_min: iki takımdan az olanın (zaman ağırlıklı) maç sayısı."""
+    by_p = 2 if p >= CONF_P[1] else 1 if p >= CONF_P[0] else 0
+    cap = 2 if n_min >= CONF_DATA[1] else 1 if n_min >= CONF_DATA[0] else 0
+    level = min(by_p, cap)
+    if level < by_p:
+        reason = f"olasılık %{p * 100:.0f}, ama veri az (~{n_min:.0f} maç) olduğu için sınırlandı"
+    else:
+        reason = f"olasılık %{p * 100:.0f}, veri yeterli (~{n_min:.0f} maç)" if cap == 2 else \
+                 f"olasılık %{p * 100:.0f} (~{n_min:.0f} maç veri)"
+    return {"level": level, "label": CONF_LABELS[level], "reason": reason}
