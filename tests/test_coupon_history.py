@@ -165,6 +165,18 @@ class ResettleTest(DbCase):
         self.assertEqual([p["status"] for p in banko["picks"]], ["won", "won"])
 
 
+    def test_postponed_void_is_not_reopened_when_played_later(self):
+        self.freeze(day_coupons("2026-10-06", banko=[pick(1), pick(2)]))
+        self.add_match(1, 0, 1)
+        self.add_match(2, 2, 0)
+        with db.session() as conn:
+            conn.execute("UPDATE saved_coupon_picks SET status='void' WHERE match_id='2'")
+            conn.execute("UPDATE matches SET kickoff='2026-10-20T12:00Z' WHERE id='2'")
+        self.settle()
+        self.assertEqual({p["match_id"]: p["status"] for p in self.history()["days"][0]["banko"]["picks"]},
+                         {"1": "lost", "2": "void"})
+
+
 class HistoryTest(DbCase):
     def test_summary_roi_and_list(self):
         days = {

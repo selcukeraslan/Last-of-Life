@@ -118,8 +118,10 @@ def settle(conn) -> dict:
     rows = conn.execute(
         "SELECT p.day, p.kind, p.match_id, p.market, p.kickoff, m.completed, m.home_goals, m.away_goals, "
         "m.status AS match_status FROM saved_coupon_picks p LEFT JOIN matches m ON m.id = p.match_id "
-        "WHERE p.status = 'pending' OR (p.status = 'void' AND m.completed = 1 AND m.home_goals IS NOT NULL "
-        "AND m.away_goals IS NOT NULL)").fetchall()  # tanınmayan pazar yüzünden iptal sayılanlar yeniden değerlendirilir
+        "WHERE p.status = 'pending' OR (p.status = 'void' AND p.market LIKE 'Handikap %' AND m.completed = 1 "
+        "AND m.home_goals IS NOT NULL AND m.away_goals IS NOT NULL AND m.kickoff = p.kickoff)").fetchall()
+    # Yalnız eskiden tanınmayan handikap pazarı yüzünden iptal sayılanlar, maç aynı saatte oynandıysa yeniden
+    # değerlendirilir; ertelenip başka saatte oynanan (kickoff değişen) iptaller ve diğer iptaller korunur.
     touched, picks_done = set(), 0
     for r in rows:
         status, hg, ag = _pick_outcome(r)
