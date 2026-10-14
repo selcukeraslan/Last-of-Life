@@ -18,6 +18,7 @@ from ..config import LEAGUES, MODEL, NEWS_LOOKBACK_DAYS, is_cup
 from ..db import get_meta, session, set_meta
 from . import predict as P
 from .blend import BlendEval
+from .calibration import calibrate_markets
 from ..scrapers.news import TR_ALIASES
 from .ratings import (Elo, Strengths, form_score, new_season, last_match_before, parse_ts, season_start,
                       standings, team_form)
@@ -92,7 +93,7 @@ class LeagueModel:
 
     # --- tek maç tahmini ---------------------------------------------------
     def predict(self, home: str, away: str, kickoff: datetime, strengths=None, elo=None,
-                history=None, news=None, detail=True) -> dict:
+                history=None, news=None, detail=True, calibrate=True) -> dict:
         st = strengths or self.strengths
         el = elo or self.elo
         hist = self.done if history is None else history
@@ -136,6 +137,8 @@ class LeagueModel:
         lh, la = math.exp(log_h), math.exp(log_a)
         mat = P.score_matrix(lh, la)
         mk = P.markets(mat)
+        if calibrate:  # Platt kalibrasyonu (calibration.py); geri test ham olasılık için calibrate=False kullanır
+            mk["markets"] = calibrate_markets(mk["markets"])
         out = {"lambda_home": round(lh, 3), "lambda_away": round(la, 3), **mk}
         if not detail:
             return out

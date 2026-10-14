@@ -3,7 +3,7 @@
 * freeze(): kupon (gün, tür) başına bir kez, ilk üretildiği haliyle `saved_coupons` / `saved_coupon_picks`
   tablolarına yazılır; sonradan oranlar veya tahminler değişse de kayıt değişmez. Seçimi olmayan (boş)
   kupon kaydedilmez; gün içinde uygun kupon çıkarsa sonraki çalışmada kaydedilir.
-* settle(): biten maçlara göre her seçimi won / lost / void, kuponu da won / lost / pending / void yapar.
+* settle(): biten maçlara göre (pazar tanınmadığı için "iptal" sayılmış ama maçı bitmiş seçimler dahil) her seçimi won / lost / void, kuponu da won / lost / pending / void yapar.
   Tek seçim yattıysa kupon hemen yatmıştır; ertelenen / iptal edilen maç oranı 1.00 sayılır (void).
 * history(): tutma oranı, "her gün KUPON_BASINA 100 TL" kâr/zarar + ROI ve günlük liste.
 """
@@ -17,6 +17,7 @@ KINDS = ("banko", "surprise")
 VOID_AFTER_DAYS = 7  # bu kadar gün geçtiği halde bitmeyen maç iptal sayılır
 _VOID_STATUS = ("postpon", "cancel", "abandon", "suspend")  # ESPN durum metni (küçük harf)
 _TOTALS = re.compile(r"^([ÜA])(\d\.\d)$")
+_HANDICAP = re.compile(r"^Handikap (-?\d+(?:\.\d+)?) ([1X2])$")
 
 
 def _now() -> datetime:
@@ -33,6 +34,10 @@ def pick_result(market: str, home_goals: int, away_goals: int) -> str | None:
     elif m := _TOTALS.match(market):
         total, line = h + a, float(m.group(2))
         won = total > line if m.group(1) == "Ü" else total < line
+    elif m := _HANDICAP.match(market):
+        # çizgi ev sahibine eklenir (iddaa: Handikap -2 -> ev 2 gol geride başlar)
+        diff = h + float(m.group(1)) - a
+        won = {"1": diff > 0, "X": diff == 0, "2": diff < 0}[m.group(2)]
     else:
         return None
     return "won" if won else "lost"
@@ -113,7 +118,8 @@ def settle(conn) -> dict:
     rows = conn.execute(
         "SELECT p.day, p.kind, p.match_id, p.market, p.kickoff, m.completed, m.home_goals, m.away_goals, "
         "m.status AS match_status FROM saved_coupon_picks p LEFT JOIN matches m ON m.id = p.match_id "
-        "WHERE p.status = 'pending'").fetchall()
+        "WHERE p.status = 'pending' OR (p.status = 'void' AND m.completed = 1 AND m.home_goals IS NOT NULL "
+        "AND m.away_goals IS NOT NULL)").fetchall()  # tanınmayan pazar yüzünden iptal sayılanlar yeniden değerlendirilir
     touched, picks_done = set(), 0
     for r in rows:
         status, hg, ag = _pick_outcome(r)

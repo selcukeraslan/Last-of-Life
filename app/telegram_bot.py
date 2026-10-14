@@ -121,17 +121,10 @@ def format_coupon_message(day: str, coupons: list[dict]) -> str:
 
 
 def pick_outcome(market: str, home_goals: int, away_goals: int) -> bool | None:
-    """Pazarın tuttuğu mu? Tanınmayan pazar için None."""
-    total = home_goals + away_goals
-    rules = {
-        "1": home_goals > away_goals, "X": home_goals == away_goals, "2": home_goals < away_goals,
-        "1X": home_goals >= away_goals, "12": home_goals != away_goals, "X2": home_goals <= away_goals,
-        "KG Var": home_goals > 0 and away_goals > 0, "KG Yok": home_goals == 0 or away_goals == 0,
-    }
-    for line in ("1.5", "2.5", "3.5"):
-        rules["Ü" + line] = total > float(line)
-        rules["A" + line] = total < float(line)
-    return rules.get(market)
+    """Pazarın tuttuğu mu? Tanınmayan pazar için None (kupon geçmişiyle aynı kurallar)."""
+    from .model.coupon_history import pick_result
+    res = pick_result(market, home_goals, away_goals)
+    return None if res is None else res == "won"
 
 
 def settle_coupon(coupon: dict, results: dict[str, dict], now: datetime) -> dict | None:

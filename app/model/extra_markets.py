@@ -8,12 +8,23 @@ _HANDICAP = re.compile(r"^Handikap (-?\d+(?:\.\d+)?) ([1X2])$")
 _HALF_TOTAL = re.compile(r"^İY [AÜ](\d+(?:\.\d+)?)$")
 
 
-def _result(home: int, away: int) -> str:
+def _result(home: float, away: float) -> str:
     return "1" if home > away else "2" if home < away else "X"
 
 
 def _out(p: float) -> dict:
     return {**P.odds(p), "model_available": True}
+
+
+def handicap_probs(mat: list[list[float]], line: float) -> dict[str, float]:
+    """iddaa handikap: çizgi EV sahibine eklenir (Handikap -2 -> ev sahibi 2 gol geride başlar).
+    Sonuç 1/X/2 = handikaplı skorun galibi. (Eski kod çizgiyi deplasmana ekliyordu: işaret tersti,
+    güçlü favoride "Handikap -2 1" ~%95 çıkıyordu, gerçek oran ~2.2 olduğu için sahte değer üretiyordu.)"""
+    out = {"1": 0.0, "X": 0.0, "2": 0.0}
+    for i, row in enumerate(mat):
+        for j, p in enumerate(row):
+            out[_result(i + line, j)] += p
+    return out
 
 
 def for_match(lambda_home: float, lambda_away: float, iddaa_odds: dict | None = None) -> dict:
@@ -54,11 +65,11 @@ def for_match(lambda_home: float, lambda_away: float, iddaa_odds: dict | None = 
                     probability = ph * ps
                     full_result = _result(hi + hj, ai + aj)
                     result[f"İY/MS {half_result}/{full_result}"] += probability
-                    for line in handis:
-                        # iddaa handicap is applied to the away team: -1 means
-                        # the away side starts one goal behind.
-                        handicap_result = _result(hi + hj, ai + aj + float(line))
-                        result[f"Handikap {line} {handicap_result}"] += probability
+
+    full = P.score_matrix(lambda_home, lambda_away)
+    for line in handis:
+        for key, probability in handicap_probs(full, float(line)).items():
+            result[f"Handikap {line} {key}"] += probability
 
     out = {key: _out(probability) for key, probability in result.items()}
     for key in (iddaa_odds or {}):
