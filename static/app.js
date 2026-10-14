@@ -268,8 +268,7 @@ function evLine(p, odd) {
 function newsList(n) {
   if (!n.items.length) return `<p class="muted">Son 7 günde haber bulunamadı.</p>`;
   return `<ul class="news">${n.items.map((i) => `<li>
-    ${i.injury ? `<span class="badge b-bad">sakatlık/ceza</span>` : ""}
-    <span class="badge ${i.sentiment > 0 ? "b-good" : i.sentiment < 0 ? "b-bad" : "b-info"}">${i.sentiment > 0 ? "+" : ""}${i.sentiment}</span>
+    <span class="badge ${i.counted ? (i.att_pct < 0 ? "b-bad" : "b-good") : "b-info"}" title="${esc(i.rule || "")}">${esc(i.label)}${i.counted && i.att_pct ? ` ${i.att_pct}%` : ""}</span>
     <a href="${esc(i.link)}" target="_blank" rel="noopener">${esc(i.title)}</a> <span class="muted">· ${esc(i.source)} · ${fmtDateTime(i.published)}</span></li>`).join("")}</ul>`;
 }
 
@@ -384,8 +383,8 @@ async function openMatch(id, competitionId = null) {
           <span>Poisson xG</span><span class="h">${f.poisson.home}</span><span class="a">${f.poisson.away}</span>
           <span>Elo xG</span><span class="h">${f.elo.lambda_home}</span><span class="a">${f.elo.lambda_away}</span>
           <span>Form (maç başı puan)</span><span class="h">${f.form.home_ppg}</span><span class="a">${f.form.away_ppg}</span>
-          <span>Haber skoru</span><span class="h">${f.news.home.score}</span><span class="a">${f.news.away.score}</span>
-          <span>Sakatlık/ceza haberi</span><span class="h">${f.news.home.injuries}</span><span class="a">${f.news.away.injuries}</span>
+          <span>Haber etkisi (xG %)</span><span class="h">${f.news.home.att_pct}</span><span class="a">${f.news.away.att_pct}</span>
+          <span>Eksik oyuncu (haber)</span><span class="h">${f.news.home.absences}</span><span class="a">${f.news.away.absences}</span>
           <span>Dinlenme (gün)</span><span class="h">${f.rest.home_days ?? "-"}</span><span class="a">${f.rest.away_days ?? "-"}</span>
           <span>Evde / deplasmanda P/M</span><span class="h">${th && th.hp ? (th.hpts / th.hp).toFixed(2) : "-"}</span><span class="a">${ta && ta.ap ? (ta.apts / ta.ap).toFixed(2) : "-"}</span>
         </div>

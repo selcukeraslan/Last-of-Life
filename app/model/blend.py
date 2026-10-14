@@ -97,7 +97,7 @@ def blend_prediction(pred: dict, iddaa_odds: dict, weight: float | None = None) 
         out["pick"] = P.best_pick(markets)
     if "data_quality" in pred:
         pmax = max(markets[k]["p"] for k in GROUPS["1x2"])
-        out.update(P.confidence(pred["data_quality"], pmax))
+        out.update(P.confidence(pred["data_quality"], pmax, pred.get("news_teams")))
     return out
 
 
