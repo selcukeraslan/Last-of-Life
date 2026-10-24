@@ -9,6 +9,8 @@
 Herkes `last_updated_at` değerini okur ("X dk önce güncellendi").
 """
 import argparse
+from contextlib import contextmanager
+from functools import partial
 import json
 import secrets
 import sys
@@ -56,7 +58,7 @@ def _progress(msg: str):
 
 
 # --- Kilit ---------------------------------------------------------------------
-def acquire_lock(conn, minutes: int) -> bool:
+def acquire_lock(conn, minutes: int) -> str | None:
     """Atomik kilit alır. Değer kilidin bitiş zamanıdır; süresi geçmiş kilit tekrar alınabilir."""
     now = _now()
     cur = conn.execute(
@@ -65,11 +67,54 @@ def acquire_lock(conn, minutes: int) -> bool:
         "WHERE meta.value IS NULL OR meta.value = '' OR meta.value < ?",
         (_iso(now + timedelta(minutes=minutes)), _iso(now)),
     )
+    if cur.rowcount != 1:
+        return None
+    token = secrets.token_hex(24)
+    set_meta(conn, "update_lock_owner", token)
+    return token
+
+
+class LostLease(RuntimeError):
+    pass
+
+
+def renew_lock(conn, token, minutes):
+    now = _now()
+    cur = conn.execute(
+        "UPDATE meta SET value=? WHERE key='update_lock' AND value>? "
+        "AND EXISTS (SELECT 1 FROM meta owner WHERE owner.key='update_lock_owner' AND owner.value=?)",
+        (_iso(now + timedelta(minutes=minutes)), _iso(now), token))
+    if cur.rowcount != 1:
+        raise LostLease("Güncelleme kilidi artık bu işleme ait değil")
+
+
+def release_lock(conn, token):
+    cur = conn.execute(
+        "UPDATE meta SET value='' WHERE key='update_lock' "
+        "AND EXISTS (SELECT 1 FROM meta owner WHERE owner.key='update_lock_owner' AND owner.value=?)", (token,))
     return cur.rowcount == 1
 
 
-def release_lock(conn):
-    set_meta(conn, "update_lock", "")
+@contextmanager
+def leased_session(token, minutes, cancelled=None):
+    with session() as conn:
+        class GuardedConnection:
+            def __getattr__(self, name):
+                return getattr(conn, name)
+
+            def commit(self):
+                if cancelled is not None and cancelled.is_set():
+                    conn.rollback()
+                    raise LostLease("Lig çekimi süre sınırını aştı")
+                try:
+                    renew_lock(conn, token, minutes)
+                    conn.commit()
+                except BaseException:
+                    conn.rollback()
+                    raise
+        guarded = GuardedConnection()
+        yield guarded
+        guarded.commit()
 
 
 def _lock_active(conn) -> bool:
@@ -77,14 +122,15 @@ def _lock_active(conn) -> bool:
     return bool(value) and value >= _iso(_now())
 
 
-def _take_lock(minutes: int, wait_seconds: int = 0) -> bool:
+def _take_lock(minutes: int, wait_seconds: int = 0) -> str | None:
     deadline = time.monotonic() + wait_seconds
     while True:
         with session() as conn:
-            if acquire_lock(conn, minutes):
-                return True
+            token = acquire_lock(conn, minutes)
+            if token:
+                return token
         if time.monotonic() >= deadline:
-            return False
+            return None
         time.sleep(3)
 
 
@@ -116,6 +162,8 @@ def _sync_iddaa(conn, retries: int = 3) -> bool:
     try:
         iddaa.sync_odds(conn, progress=_progress, retries=retries)
         return True
+    except LostLease:
+        raise
     except Exception as exc:
         conn.rollback()
         set_meta(conn, "iddaa_last_error", str(exc))
@@ -137,9 +185,9 @@ def _source_result(count=0, error=None):
             "error": str(error)[:300] if error else None}
 
 
-def _collect_league(league, quick=False):
+def _collect_league(league, quick=False, token=None, cancelled=None):
     try:
-        with session() as conn:
+        with leased_session(token, QUICK_LOCK_MINUTES if quick else FULL_LOCK_MINUTES, cancelled) as conn:
             source = source_for(league)
             if quick:
                 count, ok = source.sync_recent(conn, league, days_back=RECENT_DAYS_BACK, strict=True)
@@ -153,8 +201,9 @@ def _collect_league(league, quick=False):
         return _source_result(error=exc)
 
 
-def _finish(conn, error: str | None, sources=None):
+def _finish(conn, error: str | None, sources=None, token=None):
     """Yalnız bütün istenen kaynaklar başarılıysa ortak başarı zamanını ilerlet."""
+    renew_lock(conn, token, QUICK_LOCK_MINUTES)
     if sources is not None:
         previous = json.loads(get_meta(conn, "update_sources", "{}"))
         attempted_at = _iso(_now())
@@ -174,7 +223,7 @@ def _finish(conn, error: str | None, sources=None):
     set_meta(conn, "update_last_error", error or "")
     if error is None:
         set_meta(conn, "last_updated_at", _iso(_now()))
-    release_lock(conn)
+    release_lock(conn, token)
     return error
 
 
@@ -209,7 +258,8 @@ def run_quick_update() -> dict:
     wait = cooldown_left(last)
     if wait:
         return {"status": "cooldown", **status()}
-    if not _take_lock(QUICK_LOCK_MINUTES):
+    token = _take_lock(QUICK_LOCK_MINUTES)
+    if not token:
         return {"status": "busy", **status()}
     error, skipped, sources = None, False, {}
     try:
@@ -218,12 +268,15 @@ def run_quick_update() -> dict:
         skipped = cooldown_left(last) > 0
         if not skipped:
             pool = ThreadPoolExecutor(max_workers=min(len(LEAGUES), QUICK_MAX_WORKERS))
-            futures = {pool.submit(_collect_league, lg, quick=True): lg for lg in LEAGUES}
+            cancellations = {lg: threading.Event() for lg in LEAGUES}
+            futures = {pool.submit(_collect_league, lg, quick=True, token=token, cancelled=cancellations[lg]): lg for lg in LEAGUES}
             finished, late = wait_futures(futures, timeout=QUICK_LEAGUES_DEADLINE_SEC)
+            for future in late:
+                cancellations[futures[future]].set()
             pool.shutdown(wait=False, cancel_futures=True)  # geç kalanlar kısa zaman aşımlarıyla kendiliğinden biter
             sources = {futures[f]: f.result() for f in finished}
             sources.update({futures[f]: _source_result(error="Lig çekimi süre sınırını aştı") for f in late})
-            with session() as conn:
+            with leased_session(token, QUICK_LOCK_MINUTES) as conn:
                 iddaa_ok = _sync_iddaa(conn, retries=QUICK_IDDAA_RETRIES)
                 sources["iddaa"] = _source_result(error=None if iddaa_ok else get_meta(conn, "iddaa_last_error") or "Oranlar alınamadı")
     except Exception as exc:
@@ -231,14 +284,17 @@ def run_quick_update() -> dict:
     finally:
         with session() as conn:
             if skipped:
-                release_lock(conn)
+                release_lock(conn, token)
             else:
-                error = _finish(conn, error, sources)
+                try:
+                    error = _finish(conn, error, sources, token)
+                except LostLease as exc:
+                    error = str(exc)
     if not skipped:
         _invalidate_models()
         _track_coupons(freeze=False)  # hızlı yol yalnız sonuçlandırır; dondurma ağır model kurar
     state = status()
-    result_status = "partial" if state["outcome"] == "partial" else "error" if error else "updated"
+    result_status = "error" if error and not sources else "partial" if state["outcome"] == "partial" else "error" if error else "updated"
     return {"status": "cooldown" if skipped else result_status, **state}
 
 
@@ -246,7 +302,8 @@ def run_quick_update() -> dict:
 def run_update(leagues=None, with_news=True, wait_lock_seconds: int = 0) -> str:
     """Ağır tam güncelleme. Dönen değer: "ok" | "error" | "skipped" (kilit alınamadı)."""
     init_db()
-    if not _take_lock(FULL_LOCK_MINUTES, wait_lock_seconds):
+    token = _take_lock(FULL_LOCK_MINUTES, wait_lock_seconds)
+    if not token:
         _progress("Başka bir güncelleme sürüyor; atlandı")
         return "skipped"
     error, sources = None, {}
@@ -254,15 +311,15 @@ def run_update(leagues=None, with_news=True, wait_lock_seconds: int = 0) -> str:
         # Ligler paralel çekilir (her biri kendi bağlantısıyla); site başına istekler yine sıralı
         selected = list(leagues or LEAGUES)
         with ThreadPoolExecutor(max_workers=6) as pool:
-            for lg, result in zip(selected, pool.map(_collect_league, selected)):
+            for lg, result in zip(selected, pool.map(partial(_collect_league, token=token), selected)):
                 sources[lg] = result
                 _progress(f"{lg}: {result['count']} maç işlendi ({result['status']})")
-        with session() as conn:
+        with leased_session(token, FULL_LOCK_MINUTES) as conn:
             ok = _sync_iddaa(conn)
             sources["iddaa"] = _source_result(error=None if ok else get_meta(conn, "iddaa_last_error") or "Oranlar alınamadı")
         if with_news:
             try:
-                with session() as conn:
+                with leased_session(token, FULL_LOCK_MINUTES) as conn:
                     n = news.sync_news(conn, progress=_progress, strict=True)
                 sources["news"] = _source_result(n)
                 _progress(f"{n} haber işlendi")
@@ -273,7 +330,10 @@ def run_update(leagues=None, with_news=True, wait_lock_seconds: int = 0) -> str:
         _progress(f"Hata: {exc}")
     finally:
         with session() as conn:
-            error = _finish(conn, error, sources)
+            try:
+                error = _finish(conn, error, sources, token)
+            except LostLease as exc:
+                error = str(exc)
     _invalidate_models()
     if error is None:
         _track_coupons(freeze=True)

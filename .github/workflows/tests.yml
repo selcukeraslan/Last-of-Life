@@ -12,8 +12,21 @@ jobs:
   tests:
     runs-on: ubuntu-latest
     timeout-minutes: 10
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_HOST_AUTH_METHOD: trust # isolated, disposable CI service; no production credentials
+          POSTGRES_DB: lol_ci
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d lol_ci"
+          --health-interval 5s --health-timeout 5s --health-retries 10
     env:
       DATABASE_URL: ""
+      TEST_DATABASE_URL: postgresql://postgres@127.0.0.1:5432/lol_ci
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -23,6 +36,7 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-      - run: pip install -r requirements.txt httpx
+      - run: pip install -r requirements-dev.txt
       - run: python -m unittest discover -s tests -t .
       - run: node --test tests/js/*.test.js
+      - run: python scripts/test_postgres.py

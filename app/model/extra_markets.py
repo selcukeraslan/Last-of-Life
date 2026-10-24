@@ -13,7 +13,7 @@ def _result(home: int, away: int) -> str:
 
 
 def _out(p: float) -> dict:
-    return {**P.odds(p), "model_available": True}
+    return {**P.odds(p), "model_available": True, "validation_status": "experimental"}
 
 
 def for_match(lambda_home: float, lambda_away: float, iddaa_odds: dict | None = None) -> dict:

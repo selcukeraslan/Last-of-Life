@@ -1,3 +1,38 @@
+function prospectiveHtml(forward) {
+  if (forward?.variants) {
+    const rows = Object.entries(forward.variants).map(([name, v]) => {
+      const m = v.metrics;
+      return `<tr><td>${esc(name)}</td><td>${m.n || 0}</td><td>${m.brier ?? "—"}</td><td>${m.logloss ?? "—"}</td></tr>`;
+    }).join("");
+    return `<div class="card"><h3>Yayımlanmış tahminlerin gerçek sonuçları</h3><p class="muted">İlk maç öncesi kayıtlar; üç varyant aynı maçlarda karşılaştırılır. Kayıtlı tahmin: ${Number(forward.stored) || 0}. Sonuçlar veri biriktikçe oluşur. Yukarıdaki geçmiş testten ayrıdır.</p><table><tr><th>Varyant</th><th>Maç</th><th>Brier</th><th>Log-loss</th></tr>${rows}</table></div>`;
+  }
+  return "";
+}
+
+async function backtestControl(box) {
+  try {
+    const me = await api("/api/auth/me");
+    if (me.user?.role !== "admin") return;
+    const data = await api("/api/backtest");
+    const card = document.createElement("div");
+    card.className = "card";
+    const text = document.createElement("p"), button = document.createElement("button");
+    text.textContent = "Geçmiş test durumu: " + (data.job?.status || "idle");
+    button.className = "btn";
+    button.textContent = "Geçmiş testi çalıştır";
+    button.disabled = data.running;
+    button.addEventListener("click", async () => {
+      button.disabled = true;
+      try {
+        await api("/api/backtest", {method: "POST"});
+        text.textContent = "İş kuyruğa alındı. İşleyici yaklaşık 15 dakikada bir kontrol eder; sayfayı daha sonra yenileyebilirsiniz.";
+      } catch (e) { text.textContent = "İş başlatılamadı: " + e.message; button.disabled = false; }
+    });
+    card.append(text, button);
+    box.appendChild(card);
+  } catch (_) { /* oturum veya iş durumu okunamazsa karne yine görünür */ }
+}
+
 // "Karne" sekmesi: /api/model-report (cron önbelleği). app.js yardımcıları: $, esc, api, detail.
 const mrPct = (v, d = 1) => (v == null ? "–" : (v * 100).toFixed(d) + "%");
 const mrDiff = (v) => (v == null ? "–" : `<span class="${v >= 0 ? "ch-win" : "ch-loss"}">${v >= 0 ? "+" : "−"}${Math.abs(v * 100).toFixed(1)} puan</span>`);
@@ -22,7 +57,7 @@ async function renderModelReport() {
   box.innerHTML = Ui.skeleton(2);
   let r;
   try { r = await api("/api/model-report"); } catch (e) { box.innerHTML = Ui.error(e.message); return; }
-  if (!r.computed_at || !r.overall.n) { box.innerHTML = Ui.empty("Karne henüz hazır değil", "Veriler güncellendikten sonra burada görünecek."); return; }
+  if (!r.computed_at || !r.overall.n) { box.innerHTML = Ui.empty("Geçmiş karne henüz hazır değil", "Veriler güncellendikten sonra burada görünecek.") + prospectiveHtml(r.prospective); await backtestControl(box); return; }
   const o = r.overall, c = r.coupons;
   const bankoRate = c && c.banko && (c.banko.won + c.banko.lost) ? mrPct(c.banko.hit_rate, 0) : "–";
   box.innerHTML = `
@@ -38,4 +73,7 @@ async function renderModelReport() {
       ${r.leagues.map((l) => `<tr><td class="l">${esc(l.name)}</td><td>${l.n}</td><td>${mrPct(l.accuracy, 0)}</td></tr>`).join("")}</table></div>
       ${c ? `<h4>Kuponlar</h4><table><tr><th class="l">Kupon</th><th>Tutan</th><th>Tutma</th></tr>${mrCouponRow("Banko", c.banko)}${mrCouponRow("Sürpriz", c.surprise)}${mrCouponRow("Toplam", c.total)}</table>` : ""}`)}
     <p class="muted small">Güncelleme: ${new Date(r.computed_at).toLocaleString("tr-TR")}. Tahminler garanti değildir.</p>`;
+  box.insertAdjacentHTML("beforeend", prospectiveHtml(r.prospective));
+  await backtestControl(box);
+
 }

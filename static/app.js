@@ -44,6 +44,7 @@ async function refreshLive() {
   try {
     const data = await api("/api/live");
     state.live = new Map((data.matches || []).map((m) => [String(m.id), m]));
+    if ($("#liveState")) $("#liveState").textContent = data.stale ? "Canlı skorların bir kısmı güncel değil; son alınan veriler gösteriliyor." : "";
     document.querySelectorAll(".match[data-id]").forEach((card) => {
       const m = state.live.get(card.dataset.id), time = card.querySelector(".time");
       if (time && m) time.innerHTML = liveBadge(m);
@@ -60,7 +61,7 @@ async function refreshLive() {
     });
     if (state.tab === "slip") Slip.render();
     window.Extras?.onLive();
-  } catch { /* canlı skor geçici olarak alınamazsa mevcut görünüm korunur */ }
+  } catch { if ($("#liveState")) $("#liveState").textContent = "Canlı skorlar güncellenemedi; son alınan veriler gösteriliyor."; }
 }
 
 function fmtTime(iso) { return new Date(iso).toLocaleTimeString("tr-TR", { hour: "2-digit", minute: "2-digit" }); }
@@ -258,7 +259,7 @@ async function openMatch(id, competitionId = null) {
   const rowFor = (key, hl) => `<tr${hl ? ' class="hl"' : ""}><td class="l"><b>${esc(Simple.headline(key))}</b> <span class="muted">${esc(marketText(key, m))}</span></td><td>${k[key] ? pct(k[key].p) : "-"}</td><td>${m.iddaa_odds?.[key] ?? "-"}${oddsMove(m, key)}</td><td>${Slip.button(m, key)}</td></tr>`;
   const marketsRows = ["1", "X", "2", "1X", "X2", "Ü2.5", "A2.5", "KG Var", "KG Yok"].map((key) => rowFor(key, pk && pk.market === key)).join("");
   const extra = Object.entries(m.extra_markets || {}).filter(([, item]) => item.p != null).map(([key, item]) =>
-    `<tr><td class="l"><b>${esc(key)}</b></td><td>${pct(item.p)}</td><td>${m.iddaa_odds?.[key] ?? "-"}</td><td></td></tr>`).join("");
+    `<tr><td class="l"><b>${esc(key)}</b> <span class="muted">(deneysel)</span></td><td>${pct(item.p)}</td><td>${m.iddaa_odds?.[key] ?? "-"}</td><td></td></tr>`).join("");
   const markets = `<table><tr><th class="l">Seçenek</th><th>Şans</th><th>Oran</th><th></th></tr>${marketsRows}${extra}</table>
     <h4>En olası skorlar</h4><div class="scores">${m.scores.slice(0, 5).map((x) => `<span><b>${x.score}</b> ${pct(x.p)}</span>`).join("")}</div>
     <div id="oddsHistory"></div>`;
