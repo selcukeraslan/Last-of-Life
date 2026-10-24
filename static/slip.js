@@ -5,7 +5,7 @@
   "use strict";
   const C = window.SlipCalc;
   const STORE_KEY = "iddiaoran.slip.v1";
-  const REFRESH_AFTER_MS = 3 * 60 * 1000;
+  const REFRESH_AFTER_MS = 30 * 1000;
 
   const q = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
@@ -78,23 +78,54 @@
 
   async function fetchMatch(id) {
     try {
-      const r = await fetch("/api/match/" + encodeURIComponent(id));
+      const r = await fetch("/api/match/" + encodeURIComponent(id), {cache: "no-store"});
       if (r.status === 404) return { gone: true };
       return r.ok ? { m: await r.json() } : null;
     } catch { return null; } // ağ hatası: eldeki oranlar kalır
+  }
+  async function fetchResults(ids) {
+    const query = new URLSearchParams();
+    ids.forEach((id) => query.append("ids", id));
+    try {
+      const response = await fetch("/api/results?" + query, {cache: "no-store"});
+      return response.ok ? (await response.json()).matches : null;
+    } catch (_) { return null; }
+  }
+  function updateLive() {
+    if (typeof state === "undefined" || !state.live) return;
+    data.items = data.items.map((sel) => C.withResult(sel, state.live.get(sel.id)));
+    save();
+    if (slipVisible()) renderView();
   }
   async function refresh() {
     const ids = [...new Set(data.items.map((i) => i.id))];
     if (!ids.length || refreshing) return;
     refreshing = true;
     if (slipVisible()) renderView();
-    const results = await Promise.all(ids.map(fetchMatch));
-    refreshing = false;
-    lastRefresh = Date.now();
-    const fresh = new Map(ids.map((id, i) => [id, results[i]]));
-    for (const [id, r] of fresh) { if (r && r.gone) missing.add(id); else missing.delete(id); }
-    data.items = data.items.map((sel) => { const r = fresh.get(sel.id); return r && r.m ? C.refreshSelection(sel, r.m) : sel; });
-    changed();
+    try {
+      const [results, details] = await Promise.all([
+        fetchResults(ids),
+        Promise.all(ids.map((id) => {
+          const sel = data.items.find((s) => s.id === id);
+          return sel && Date.parse(sel.kickoff) > Date.now() ? fetchMatch(id) : null;
+        })),
+      ]);
+      const fresh = new Map(ids.map((id, i) => [id, details[i]]));
+      for (const [id, r] of fresh) {
+        if (r?.gone && results?.[id]?.state !== "post") missing.add(id);
+        else missing.delete(id);
+      }
+      data.items = data.items.map((sel) => {
+        const detail = fresh.get(sel.id);
+        const next = detail?.m ? C.refreshSelection(sel, detail.m) : sel;
+        return C.withResult(next, results?.[sel.id]);
+      });
+      lastRefresh = Date.now();
+      updateLive();
+    } finally {
+      refreshing = false;
+      changed();
+    }
   }
 
   // ---------- Kuponum sekmesi ----------
@@ -110,13 +141,12 @@
   function rowHtml(r, dupIds) {
     const flags = [];
     if (dupIds.has(r.id)) flags.push(`<span class="badge b-warn" title="Aynı maçtan birden fazla seçim">aynı maç</span>`);
-    if (r.started) flags.push(`<span class="badge b-bad">başladı</span>`);
-    if (missing.has(r.id)) flags.push(`<span class="badge b-bad" title="Maç güncel listede yok; oynanmış olabilir">listede yok</span>`);
-    const live = typeof state !== "undefined" && state.live && (state.live.get(String(r.id)) || [...state.live.values()].find((m) => m.home === r.home && m.away === r.away));
-    const liveStatus = live && typeof selectionResult === "function" ? selectionResult(r.market, live.home_goals, live.away_goals, live.state) : "";
-    return `<tr class="${dupIds.has(r.id) ? "slip-dup" : ""}" data-live-match="${esc(r.id)}" data-home="${esc(r.home)}" data-away="${esc(r.away)}" data-market="${esc(r.market)}">
+    const view = C.resultView(r, Date.now());
+    flags.push(`<span class="badge ${view.completed ? "b-info" : "b-warn"}">${view.label}</span>`);
+    if (missing.has(r.id) && !view.completed) flags.push(`<span class="badge b-warn">Sonuç doğrulanamadı</span>`);
+    return `<tr class="${dupIds.has(r.id) ? "slip-dup" : ""}" data-slip-row data-live-match="${esc(r.id)}" data-home="${esc(r.home)}" data-away="${esc(r.away)}" data-market="${esc(r.market)}">
       <td class="l"><b>${esc(r.home)}</b> – ${esc(r.away)}<span class="claude-odd">${esc(r.leagueName)}</span></td>
-      <td>${fmtDateTime(r.kickoff)} <span class="live-score">${live ? `<span class="badge b-bad">${live.home_goals}–${live.away_goals} · ${esc(live.minute)}</span>` : ""}</span></td><td>${marketBadge(r.market)} <span class="live-status">${liveStatus ? `<span class="badge ${liveStatus === "yatıyor" || liveStatus === "yattı" ? "b-bad" : "b-good"}">${liveStatus}</span>` : ""}</span> ${flags.join(" ")}</td>
+      <td>${fmtDateTime(r.kickoff)} <span class="live-score">${view.score ? `<span class="badge b-info">${view.score}</span>` : ""}</span></td><td>${marketBadge(r.market)} <span class="live-status">${view.result ? `<span class="badge ${view.result === "Yattı" ? "b-bad" : "b-good"}">${view.result}</span>` : ""}</span> ${flags.join(" ")}</td>
       <td>${oddsCell(r)}</td><td>${pct(r.p)}</td>
       <td><button type="button" class="slip-remove" data-slip-remove="${esc(r.key)}" aria-label="${esc(r.home)} – ${esc(r.away)} ${esc(r.market)} seçimini çıkar">×</button></td></tr>`;
   }
@@ -128,7 +158,8 @@
         ? `<div class="slip-warn bad">⚠ ${name}: ${mk} aynı anda gerçekleşemez; bu kupon kazanamaz (tutma ihtimali %0 sayıldı).</div>`
         : `<div class="slip-warn">⚠ ${name} maçından ${g.markets.length} seçim var (${mk}). Aynı maçın seçimleri birbirine bağlıdır; tutma ihtimali bağımsız varsayımıyla hesaplanan yaklaşık bir değerdir ve bahis sitelerinde bu birleşim kabul edilmeyebilir.</div>`);
     }
-    if (s.startedCount) out.push(`<div class="slip-warn bad">⚠ ${s.startedCount} seçimin maçı başlamış; bunlar artık oynanamaz.</div>`);
+    if (s.finishedCount) out.push(`<div class="slip-warn info">${s.finishedCount} seçimin maçı tamamlandı; son skorlar yukarıda gösteriliyor.</div>`);
+    if (s.startedCount) out.push(`<div class="slip-warn bad">⚠ ${s.startedCount} seçimin maçının başlama saati geçti; sonuçlar kontrol ediliyor. Bu maçlara yeni seçim yapılamaz.</div>`);
     if (s.claudeCount) out.push(`<div class="slip-warn info">ℹ ${s.claudeCount} seçimde iddaa oranı yok, tahmini oran kullanıldı. Bu gerçek bahis oranı değildir; kazanç buna göre tahmindir.</div>`);
     return out.join("");
   }
@@ -172,7 +203,7 @@
       <div class="slip-actions">
         <button type="button" class="btn" id="slipShare">Paylaş</button>
         <select id="slipShareSize" aria-label="Görsel boyutu"><option value="square">Kare 1080×1080</option><option value="story">Story 1080×1920</option></select>
-        <button type="button" class="btn" id="slipRefresh" ${refreshing ? "disabled" : ""}>${refreshing ? "Yenileniyor…" : "Oranları yenile"}</button>
+        <button type="button" class="btn" id="slipRefresh" ${refreshing ? "disabled" : ""}>${refreshing ? "Yenileniyor…" : "Skorları ve oranları yenile"}</button>
         <button type="button" class="btn btn-ghost" id="slipClear">Kuponu temizle</button>
       </div>
       <p class="muted slip-note">Tutma ihtimali, seçimlerin model olasılıklarının çarpımıdır (seçimlerin birbirinden bağımsız olduğu varsayılır). Kupon bu tarayıcıda saklanır; oranlar zamanla değişebilir. Tahmindir, garanti değildir.</p>
@@ -220,5 +251,8 @@
   });
 
   document.addEventListener("DOMContentLoaded", syncButtons);
-  window.Slip = { button, render };
+  setInterval(() => {
+    if (!document.hidden && slipVisible() && Date.now() - lastRefresh >= REFRESH_AFTER_MS) refresh();
+  }, REFRESH_AFTER_MS);
+  window.Slip = { button, render, updateLive };
 })();

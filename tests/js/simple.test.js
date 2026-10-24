@@ -16,3 +16,12 @@ test("server summary is rendered with 3-level badge and no jargon", () => {
   assert.match(html, /conf-3/);
   assert.doesNotMatch(html, /xG|EV|Kelly|Elo|lambda/i);
 });
+
+test('league list puts high, medium and low confidence before limited-data rows', () => {
+  const m = (id, level, score, kickoff) => ({id, confidence:score, kickoff,
+    summary:{market:'1',level}});
+  const rows=[m('low',1,.4,'2026-10-24T10:00Z'),m('medium',2,.6,'2026-10-24T11:00Z'),
+    m('high',3,.8,'2026-10-26T18:00Z'),m('higher',3,.9,'2026-10-27T18:00Z'),m('unknown',0,null,'2026-10-24T09:00Z')];
+  assert.deepEqual(Simple.sortMatches(rows).map(m=>m.id),['higher','high','medium','low','unknown']);
+  assert.equal(rows[0].id,'low');
+});

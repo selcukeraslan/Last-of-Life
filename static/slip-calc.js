@@ -63,7 +63,36 @@
 
   /** Saklı seçimi taze maç verisiyle günceller (olasılık + oranlar); veri uymuyorsa eskisini korur. */
   function refreshSelection(sel, m) {
-    return fromMatch(m, sel.market, sel.leagueName) || sel;
+    const fresh = fromMatch(m, sel.market, sel.leagueName);
+    return fresh ? { ...sel, ...fresh, result: sel.result } : sel;
+  }
+
+  function normalizeResult(value) {
+    if (!value || !["pre", "in", "post", "unknown"].includes(value.state)) return null;
+    const goal = (n) => Number.isInteger(n) && n >= 0 && n <= 999;
+    const scored = value.state === "in" || value.state === "post";
+    if (scored && (!goal(value.home_goals) || !goal(value.away_goals))) return null;
+    return { state: value.state, home_goals: scored ? value.home_goals : null,
+      away_goals: scored ? value.away_goals : null, minute: String(value.minute || "").slice(0, 40),
+      updated_at: Number.isFinite(Date.parse(value.updated_at)) ? value.updated_at : null };
+  }
+  function withResult(sel, value) {
+    if (value?.id != null && String(value.id) !== sel.id) return sel;
+    const next = normalizeResult(value), old = normalizeResult(sel.result);
+    if (!next || (old?.state === "post" && next.state !== "post") || (old?.state === "in" && ["unknown", "pre"].includes(next.state))) return sel;
+    if (old?.updated_at && next.updated_at && Date.parse(next.updated_at) < Date.parse(old.updated_at)) return sel;
+    return { ...sel, result: next };
+  }
+  function resultView(sel, now) {
+    const r = normalizeResult(sel.result);
+    if (r?.state === "post") return { label: "Bitti", score: `${r.home_goals}–${r.away_goals}`,
+      result: RULES[sel.market]?.(r.home_goals, r.away_goals) ? "Tuttu" : "Yattı", completed: true };
+    if (r?.state === "in") {
+      const stale = !r.updated_at || now - Date.parse(r.updated_at) > 120000;
+      return { label: stale ? "Son alınan skor" : "Canlı", score: `${r.home_goals}–${r.away_goals}`,
+        result: stale ? "" : RULES[sel.market]?.(r.home_goals, r.away_goals) ? "Tutuyor" : "Bekliyor", completed: false };
+    }
+    return { label: Date.parse(sel.kickoff) <= now ? "Sonuç bekleniyor" : "Başlamadı", score: "", result: "", completed: false };
   }
 
   /** localStorage'dan okunan ham veriyi güvenli forma çevirir. */
@@ -78,6 +107,7 @@
         id: sel.id, market: sel.market, leagueName: typeof sel.leagueName === "string" ? sel.leagueName : "",
         home: sel.home, away: sel.away, kickoff: sel.kickoff, p: sel.p,
         iddaaOdds: num(sel.iddaaOdds), claudeOdds: num(sel.claudeOdds),
+        result: normalizeResult(sel.result),
       });
     }
     if ("stake" in raw) out.stake = raw.stake === null ? null : (num(raw.stake) !== null && raw.stake >= 0 ? raw.stake : DEFAULT_STAKE);
@@ -113,8 +143,9 @@
   function summarize(items, stake, now) {
     const rows = items.map((sel) => {
       const o = effectiveOdds(sel);
+      const completed = sel.result?.state === "post" && normalizeResult(sel.result) !== null;
       return { ...sel, key: keyOf(sel), odds: o ? o.odds : null, source: o ? o.source : null,
-               started: Date.parse(sel.kickoff) <= now };
+               completed, started: !completed && Date.parse(sel.kickoff) <= now };
     });
 
     const byMatch = new Map();
@@ -137,6 +168,7 @@
       rows, count, sameMatch, impossible, iddaaCount,
       claudeCount: rows.filter((r) => r.source === "claude").length,
       startedCount: rows.filter((r) => r.started).length,
+      finishedCount: rows.filter((r) => r.completed).length,
       source: !count ? null : iddaaCount === count ? "iddaa" : iddaaCount === 0 ? "claude" : "karışık",
       totalOdds, totalProbability, naiveProbability, ev,
       stake: money ? stake : null,
@@ -149,6 +181,6 @@
   return {
     MIN_ODDS, MAX_ITEMS, DEFAULT_STAKE, GROUPS, MARKETS,
     keyOf, effectiveOdds, isValid, fromMatch, refreshSelection, sanitize, parseStake,
-    addSelection, removeSelection, hasSelection, conflicts, summarize,
+    addSelection, removeSelection, hasSelection, conflicts, summarize, normalizeResult, withResult, resultView,
   };
 });

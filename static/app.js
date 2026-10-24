@@ -43,13 +43,14 @@ function pickLive(p) {
 async function refreshLive() {
   try {
     const data = await api("/api/live");
-    state.live = new Map((data.matches || []).map((m) => [String(m.id), m]));
+    state.live = new Map((data.matches || []).map((m) => [String(m.id), { ...m, updated_at: data.sources?.[m.league]?.last_success_at || data.updated_at }]));
     if ($("#liveState")) $("#liveState").textContent = data.stale ? "Canlı skorların bir kısmı güncel değil; son alınan veriler gösteriliyor." : "";
     document.querySelectorAll(".match[data-id]").forEach((card) => {
       const m = state.live.get(card.dataset.id), time = card.querySelector(".time");
       if (time && m) time.innerHTML = liveBadge(m);
     });
     document.querySelectorAll("[data-live-match]").forEach((row) => {
+      if (row.hasAttribute("data-slip-row")) return; // kuponun kalıcı son skoru canlı listeden silinmesin
       const m = pickLive({ id: row.dataset.liveMatch, home: row.dataset.home, away: row.dataset.away });
       const status = row.querySelector(".live-status");
       const score = row.querySelector(".live-score");
@@ -59,6 +60,7 @@ async function refreshLive() {
       }
       if (score) score.innerHTML = m ? liveBadge(m) : "";
     });
+    window.Slip?.updateLive();
     if (state.tab === "slip") Slip.render();
     window.Extras?.onLive();
   } catch { if ($("#liveState")) $("#liveState").textContent = "Canlı skorlar güncellenemedi; son alınan veriler gösteriliyor."; }
@@ -134,7 +136,7 @@ function matchCard(m) {
         <div class="m-team">${window.Extras ? Extras.star(m.home) : ""}${img(m.home_logo)}<b>${esc(m.home)}</b></div>
         <div class="m-team">${window.Extras ? Extras.star(m.away) : ""}${img(m.away_logo)}<b>${esc(m.away)}</b></div>
       </div>
-      <div class="time">${live ? liveBadge(live) : fmtTime(m.kickoff)}</div>
+      <div class="time">${live ? liveBadge(live) : fmtDateTime(m.kickoff)}</div>
     </div>
     <div class="m-pick">${Simple.pickBlock(m)}
       ${m.pick ? `<div class="m-actions">${Slip.button(m, m.pick.market)}<span class="m-more">Ayrıntılar ›</span></div>` : `<div class="m-actions"><span class="m-more">Ayrıntılar ›</span></div>`}
@@ -148,14 +150,17 @@ async function renderMatches() {
   renderOddsDrops();
   window.Today?.render();
   const query = new URLSearchParams({ league: state.league, days: "14" });
-  const list = await api(`/api/upcoming?${query}`);
+  const list = Simple.sortMatches(await api(`/api/upcoming?${query}`));
   if (!list.length) { el.innerHTML = Ui.empty("Maç bulunamadı", "Önümüzdeki 14 günde maç yok. Verileri güncellemeyi deneyin."); return; }
   const selectedLeague = [...state.leagues, ...(state.smallLeagues || [])].find((l) => l.id === state.league);
   const leagueTitle = selectedLeague ? `${selectedLeague.country ? esc(selectedLeague.country) + " · " : ""}${esc(selectedLeague.name)}` : "";
-  let html = "", lastDay = "";
+  let html = "", lastLevel = null;
   for (const m of list) {
-    const day = fmtDay(m.kickoff);
-    if (day !== lastDay) { html += `<div class="day-head">${day}</div>`; lastDay = day; }
+    const level = Simple.confidenceLevel(m);
+    if (level !== lastLevel) {
+      html += `<div class="day-head">${["Net öneri yok / sınırlı veri", "Düşük güven", "Orta güven", "Yüksek güven"][level]}</div>`;
+      lastLevel = level;
+    }
     html += matchCard(m);
   }
   el.innerHTML = (window.Extras ? Extras.filterButton() : "") + (leagueTitle ? `<div class="day-head">${leagueTitle}</div>` : "") + html;
