@@ -23,6 +23,19 @@ def coupon(kind, picks):
 
 
 class PickOutcomeTest(unittest.TestCase):
+    def test_every_automatic_market_matches_history_settlement(self):
+        from app.model.coupon_history import pick_result
+        from app.model.settlement import SUPPORTED_MARKETS
+        for market in SUPPORTED_MARKETS:
+            for h in range(5):
+                for a in range(5):
+                    self.assertEqual(tg.pick_outcome(market, h, a), pick_result(market, h, a) == "won")
+
+    def test_unknown_completed_market_is_not_silently_voided(self):
+        c = coupon("banko", [pick(1, "İY A1.5")])
+        result = {"1": {"completed": 1, "home_goals": 2, "away_goals": 0}}
+        self.assertIsNone(tg.settle_coupon(c, result, datetime(2026, 10, 18, tzinfo=UTC)))
+
     def test_markets(self):
         cases = [("1", 2, 1, True), ("1", 1, 1, False), ("X", 0, 0, True), ("2", 0, 1, True),
                  ("1X", 1, 1, True), ("1X", 0, 1, False), ("X2", 1, 1, True), ("12", 1, 1, False),
@@ -35,6 +48,16 @@ class PickOutcomeTest(unittest.TestCase):
 
 
 class MessageTest(unittest.TestCase):
+    def test_missing_result_uses_same_timeout_as_history(self):
+        from app.model.coupon_history import _pick_outcome
+        p = pick(1, "1")
+        row = {"market": "1", "kickoff": p["kickoff"], "completed": 0,
+               "home_goals": None, "away_goals": None, "match_status": None}
+        now = datetime(2026, 10, 18, 4, 0, tzinfo=UTC)
+        with patch("app.model.coupon_history._now", return_value=now):
+            self.assertEqual(_pick_outcome(row)[0], "pending")
+        self.assertIsNone(tg.settle_coupon(coupon("banko", [p]), {}, now))
+
     def test_coupon_message_escapes_html_and_uses_turkey_time(self):
         text = tg.format_coupon_message("2026-10-17", [coupon("banko", [pick(1, "1")])])
         self.assertIn("17 Ekim 2026", text)
@@ -48,7 +71,7 @@ class MessageTest(unittest.TestCase):
         results = {"1": {"completed": 1, "home_goals": 2, "away_goals": 0}}
         before = datetime(2026, 10, 17, 18, 0, tzinfo=UTC)
         self.assertIsNone(tg.settle_coupon(c, results, before))
-        after = datetime(2026, 10, 18, 4, 0, tzinfo=UTC)
+        after = datetime(2026, 10, 25, 4, 0, tzinfo=UTC)
         s = tg.settle_coupon(c, results, after)
         self.assertEqual((s["status"], s["odds"]), ("won", 1.5))
         self.assertEqual([p["state"] for p in s["picks"]], ["won", "void"])

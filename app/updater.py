@@ -9,6 +9,8 @@
 Herkes `last_updated_at` değerini okur ("X dk önce güncellendi").
 """
 import argparse
+import json
+import secrets
 import sys
 import threading
 import time
@@ -101,7 +103,10 @@ def status() -> dict:
         last = get_meta(conn, "last_updated_at") or get_meta(conn, "last_update")
         running = _lock_active(conn)
         error = get_meta(conn, "update_last_error") or None
+        sources = json.loads(get_meta(conn, "update_sources", "{}"))
+        outcome = get_meta(conn, "update_outcome")
     return {"running": running, "last_updated_at": last, "error": error,
+            "outcome": outcome, "sources": sources,
             "cooldown_seconds": cooldown_left(last), "cooldown_minutes": COOLDOWN_MINUTES,
             "message": _progress_state["message"] if running else ""}
 
@@ -127,11 +132,50 @@ def _sync_iddaa(conn, retries: int = 3) -> bool:
         return False
 
 
-def _finish(conn, error: str | None):
+def _source_result(count=0, error=None):
+    return {"status": "error" if error else "success", "count": count,
+            "error": str(error)[:300] if error else None}
+
+
+def _collect_league(league, quick=False):
+    try:
+        with session() as conn:
+            source = source_for(league)
+            if quick:
+                count, ok = source.sync_recent(conn, league, days_back=RECENT_DAYS_BACK, strict=True)
+                if not ok:
+                    raise RuntimeError("Kaynak isteği başarısız")
+            else:
+                count = source.sync_league(conn, league, _progress, strict=True)
+        return _source_result(count)
+    except Exception as exc:
+        _progress(f"{league}: {exc}")
+        return _source_result(error=exc)
+
+
+def _finish(conn, error: str | None, sources=None):
+    """Yalnız bütün istenen kaynaklar başarılıysa ortak başarı zamanını ilerlet."""
+    if sources is not None:
+        previous = json.loads(get_meta(conn, "update_sources", "{}"))
+        attempted_at = _iso(_now())
+        for key, result in sources.items():
+            last_success = previous.get(key, {}).get("last_success_at")
+            previous[key] = {**result, "attempted_at": attempted_at,
+                             "last_success_at": attempted_at if result["status"] == "success" else last_success}
+        set_meta(conn, "update_sources", json.dumps(previous))
+        successes = sum(r["status"] == "success" for r in sources.values())
+        failures = [key for key, r in sources.items() if r["status"] != "success"]
+        outcome = "success" if not failures and not error else "partial" if successes else "failed"
+        error = error or ("Güncellenemeyen kaynaklar: " + ", ".join(failures) if failures else None)
+        set_meta(conn, "update_outcome", outcome)
+        set_meta(conn, "update_last_attempt_at", attempted_at)
+        # Başarısız kaynak da önceki commit'lerde kısmi veri yazmış olabilir.
+        set_meta(conn, "update_data_version", secrets.token_hex(16))
     set_meta(conn, "update_last_error", error or "")
     if error is None:
         set_meta(conn, "last_updated_at", _iso(_now()))
     release_lock(conn)
+    return error
 
 
 def _invalidate_models():
@@ -158,7 +202,7 @@ def _track_coupons(freeze: bool):
 
 # --- Hızlı güncelleme (web isteği içinde) -----------------------------------------
 def run_quick_update() -> dict:
-    """Senkron, hızlı artımlı güncelleme. Dönen `status`: updated | cooldown | busy | error."""
+    """Senkron güncelleme. status: updated | partial | cooldown | busy | error."""
     init_db()
     with session() as conn:
         last = get_meta(conn, "last_updated_at") or get_meta(conn, "last_update")
@@ -167,25 +211,21 @@ def run_quick_update() -> dict:
         return {"status": "cooldown", **status()}
     if not _take_lock(QUICK_LOCK_MINUTES):
         return {"status": "busy", **status()}
-    error, skipped = None, False
+    error, skipped, sources = None, False, {}
     try:
         with session() as conn:  # kilidi beklerken başka biri güncellemiş olabilir
             last = get_meta(conn, "last_updated_at") or get_meta(conn, "last_update")
         skipped = cooldown_left(last) > 0
         if not skipped:
-            def one(league):
-                with session() as conn:
-                    return source_for(league).sync_recent(conn, league, days_back=RECENT_DAYS_BACK)
-
             pool = ThreadPoolExecutor(max_workers=min(len(LEAGUES), QUICK_MAX_WORKERS))
-            futures = [pool.submit(one, lg) for lg in LEAGUES]
-            finished, _late = wait_futures(futures, timeout=QUICK_LEAGUES_DEADLINE_SEC)
+            futures = {pool.submit(_collect_league, lg, quick=True): lg for lg in LEAGUES}
+            finished, late = wait_futures(futures, timeout=QUICK_LEAGUES_DEADLINE_SEC)
             pool.shutdown(wait=False, cancel_futures=True)  # geç kalanlar kısa zaman aşımlarıyla kendiliğinden biter
-            results = [f.result() for f in finished]
+            sources = {futures[f]: f.result() for f in finished}
+            sources.update({futures[f]: _source_result(error="Lig çekimi süre sınırını aştı") for f in late})
             with session() as conn:
                 iddaa_ok = _sync_iddaa(conn, retries=QUICK_IDDAA_RETRIES)
-            if not iddaa_ok and not any(ok for _, ok in results):
-                error = "Kaynaklara ulaşılamadı (ESPN ve iddaa)"
+                sources["iddaa"] = _source_result(error=None if iddaa_ok else get_meta(conn, "iddaa_last_error") or "Oranlar alınamadı")
     except Exception as exc:
         error = str(exc)
     finally:
@@ -193,11 +233,13 @@ def run_quick_update() -> dict:
             if skipped:
                 release_lock(conn)
             else:
-                _finish(conn, error)
-    if not skipped and error is None:
+                error = _finish(conn, error, sources)
+    if not skipped:
         _invalidate_models()
         _track_coupons(freeze=False)  # hızlı yol yalnız sonuçlandırır; dondurma ağır model kurar
-    return {"status": "cooldown" if skipped else "error" if error else "updated", **status()}
+    state = status()
+    result_status = "partial" if state["outcome"] == "partial" else "error" if error else "updated"
+    return {"status": "cooldown" if skipped else result_status, **state}
 
 
 # --- Tam güncelleme (cron / komut satırı) -----------------------------------------
@@ -207,31 +249,37 @@ def run_update(leagues=None, with_news=True, wait_lock_seconds: int = 0) -> str:
     if not _take_lock(FULL_LOCK_MINUTES, wait_lock_seconds):
         _progress("Başka bir güncelleme sürüyor; atlandı")
         return "skipped"
-    error = None
+    error, sources = None, {}
     try:
         # Ligler paralel çekilir (her biri kendi bağlantısıyla); site başına istekler yine sıralı
-        def one(lg):
-            with session() as conn:
-                return lg, source_for(lg).sync_league(conn, lg, _progress)
-
+        selected = list(leagues or LEAGUES)
         with ThreadPoolExecutor(max_workers=6) as pool:
-            for lg, n in pool.map(one, leagues or LEAGUES):
-                _progress(f"{lg}: {n} maç işlendi")
+            for lg, result in zip(selected, pool.map(_collect_league, selected)):
+                sources[lg] = result
+                _progress(f"{lg}: {result['count']} maç işlendi ({result['status']})")
         with session() as conn:
-            _sync_iddaa(conn)
-            if with_news:
-                n = news.sync_news(conn, progress=_progress)
+            ok = _sync_iddaa(conn)
+            sources["iddaa"] = _source_result(error=None if ok else get_meta(conn, "iddaa_last_error") or "Oranlar alınamadı")
+        if with_news:
+            try:
+                with session() as conn:
+                    n = news.sync_news(conn, progress=_progress, strict=True)
+                sources["news"] = _source_result(n)
                 _progress(f"{n} haber işlendi")
-        _progress("Güncelleme tamamlandı")
+            except Exception as exc:
+                sources["news"] = _source_result(error=exc)
     except Exception as exc:  # arayüzde göstermek için
         error = str(exc)
         _progress(f"Hata: {exc}")
     finally:
         with session() as conn:
-            _finish(conn, error)
+            error = _finish(conn, error, sources)
+    _invalidate_models()
     if error is None:
-        _invalidate_models()
         _track_coupons(freeze=True)
+    else:
+        _track_coupons(freeze=False)
+    _progress("Güncelleme tamamlandı" if not error else error)
     return "error" if error else "ok"
 
 
@@ -253,5 +301,5 @@ if __name__ == "__main__":
         faulthandler.dump_traceback_later(270, exit=True)
         res = run_quick_update()
         print(res.get("status"))
-        sys.exit(1 if res.get("status") == "error" else 0)
+        sys.exit(1 if res.get("status") in ("error", "partial") else 0)
     sys.exit(1 if run_update(a.league, with_news=not a.no_news, wait_lock_seconds=a.wait_lock) == "error" else 0)

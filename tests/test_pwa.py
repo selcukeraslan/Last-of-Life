@@ -1,10 +1,14 @@
-import asyncio
 import json
+import os
+import shutil
+import subprocess
 import struct
 import tempfile
 import unittest
 from pathlib import Path
 from unittest.mock import patch
+
+from fastapi.testclient import TestClient
 
 from app import pwa
 from app.config import STATIC_DIR
@@ -12,22 +16,13 @@ from app.main import app
 
 
 def asgi_get(path: str):
-    """Uvicorn'suz GET: (status, {küçük harf başlık: değer}, gövde) döner; lifespan (DB) tetiklenmez."""
-    sent, scope = [], {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
-                       "scheme": "https", "path": path, "raw_path": path.encode(), "query_string": b"",
-                       "headers": [(b"host", b"iddia-oran.vercel.app")], "server": ("iddia-oran.vercel.app", 443),
-                       "client": ("127.0.0.1", 1)}
-
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    async def send(msg):
-        sent.append(msg)
-
-    asyncio.run(app(scope, receive, send))
-    start = next(m for m in sent if m["type"] == "http.response.start")
-    headers = {k.decode().lower(): v.decode() for k, v in start["headers"]}
-    return start["status"], headers, b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    """Lifespan başlatmadan gerçek ASGI istemcisiyle GET; üretim DB/güncellemesi çalışmaz."""
+    client = TestClient(app, base_url="https://iddia-oran.vercel.app")
+    try:
+        response = client.get(path)
+        return response.status_code, dict(response.headers), response.content
+    finally:
+        client.close()
 
 
 def png_size(data: bytes):
@@ -70,6 +65,17 @@ class ManifestTest(unittest.TestCase):
 
 
 class ServiceWorkerTest(unittest.TestCase):
+    def test_gated_site_does_not_precache_login_redirect_as_shell(self):
+        with patch.dict(os.environ, {"AUTH_REQUIRED": "1"}):
+            self.assertNotIn("/", pwa.precache_urls())
+            self.assertIn("const AUTH_REQUIRED = true", pwa.render_sw())
+
+    @unittest.skipUnless(shutil.which("node"), "node kurulu değil")
+    def test_service_worker_privacy_and_offline_behavior(self):
+        run = subprocess.run(["node", "--test", "tests/js/service_worker.test.js"],
+                             cwd=STATIC_DIR.parent, capture_output=True, text=True, timeout=30)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
     def test_served_from_root_with_scope_header(self):
         status, headers, body = asgi_get("/sw.js")
         self.assertEqual(status, 200)

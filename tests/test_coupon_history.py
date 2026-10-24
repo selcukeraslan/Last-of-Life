@@ -78,6 +78,32 @@ class DbCase(unittest.TestCase):
 
 
 class FreezeTest(DbCase):
+    def test_web_telegram_and_history_use_same_published_coupon(self):
+        from app import main, telegram_bot as tg
+        now = datetime.now(timezone.utc)
+        target = now.astimezone(ch.TZ).date()
+        kickoff = (now + timedelta(hours=2)).isoformat()
+        first = day_coupons(target.isoformat(), banko=[pick(1, kickoff=kickoff), pick(2, kickoff=kickoff)])
+        changed = day_coupons(target.isoformat(), banko=[pick(9, odds=2.0, kickoff=kickoff)])
+        changed["banko_alternatives"] = [changed["banko"]]
+        with patch.object(main, "build_coupons", return_value=first):
+            web = main._coupons(target)
+        with patch.object(main, "build_coupons", return_value=changed):
+            later_web = main._coupons(target)
+        self.assertEqual(later_web["banko"], web["banko"])
+        self.assertEqual(later_web["banko_alternatives"][1]["publication"], "live")
+        self.assertEqual(web["banko"]["coupon_id"], f"{target}:banko:v1")
+        sent = []
+        tg.post_daily_coupons(now, lambda text, reply_to=None: sent.append(text) or "1",
+                              force=True, build=lambda day: changed)
+        with db.session() as conn:
+            import json
+            payload = json.loads(conn.execute("SELECT payload FROM telegram_posts").fetchone()["payload"])
+        ids = [p["id"] for p in web["banko"]["picks"]]
+        self.assertEqual([p["id"] for p in payload[0]["picks"]], ids)
+        self.assertEqual(payload[0]["coupon_id"], web["banko"]["coupon_id"])
+        self.assertEqual([p["match_id"] for p in self.history()["days"][0]["banko"]["picks"]], ids)
+
     def test_frozen_once_per_day_and_kind(self):
         first = day_coupons("2026-10-06", banko=[pick(1), pick(2)], surprise=[pick(3, "X", 3.0, 0.3)])
         self.assertEqual(self.freeze(first), ["banko", "surprise"])
@@ -185,6 +211,7 @@ class UpdaterIntegrationTest(DbCase):
         self.freeze(day_coupons("2026-10-06", banko=[pick(1), pick(2)]))
         self.add_match(1, 0, 3)  # yattı
         with patch.object(updater.espn, "sync_recent", return_value=(1, True)), \
+                patch.object(updater.tff, "sync_recent", return_value=(1, True)), \
                 patch.object(updater.iddaa, "sync_odds", return_value={}), \
                 patch.object(ch, "freeze_today") as freeze:
             self.assertEqual(updater.run_quick_update()["status"], "updated")

@@ -281,9 +281,7 @@ def coupons(day: str | None = Query(None, description="YYYY-MM-DD (Türkiye saat
 
 
 def _coupons(target):
-    result = build_coupons(target)
-    coupon_history.freeze_if_today(result)  # günün kuponu ilk üretildiği haliyle kaydedilir
-    return result
+    return coupon_history.daily_coupons(target, build=build_coupons)
 
 
 @app.post("/api/update", dependencies=[Depends(auth.require_admin)])

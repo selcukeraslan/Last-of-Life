@@ -44,6 +44,18 @@ class OddsSourceTest(unittest.TestCase):
 
 
 class BankoTest(unittest.TestCase):
+    def test_first_half_and_handicap_cannot_enter_automatic_coupon(self):
+        from app.model import extra_markets
+        from app.model.settlement import SUPPORTED_MARKETS
+        entries = []
+        for mid in (1, 2):
+            p = pred(mid, {"1X": (0.8, 1.20)})
+            p["extra_markets"] = extra_markets.for_match(1, 1, {"İY A1.5": 1.25, "Handikap 2 2": 1.20})
+            choices = _choices(p, {"İY A1.5": 1.25, "Handikap 2 2": 1.20})
+            self.assertTrue(all(c["market"] in SUPPORTED_MARKETS for c in choices))
+            entries.append((p, choices))
+        self.assertEqual([p["market"] for p in select_banko(entries)], ["1X", "1X"])
+
     def test_one_pick_per_match_and_rules(self):
         entries = [entry(1, {"1": (0.80, 1.30), "Ü1.5": (0.78, 1.30)}),
                    entry(2, {"1X": (0.90, 1.18)}),

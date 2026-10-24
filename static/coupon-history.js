@@ -17,6 +17,7 @@ function chCoupon(kind, c) {
   const won = c.picks.filter((p) => p.status === "won").length;
   const profit = c.profit == null ? "" : ` · <span class="${chSign(c.profit)}">${chTL(c.profit)}</span>`;
   return `<details class="ch-coupon"><summary><b>${CH_KIND[kind]}</b> ${chBadge(c.status)} <span class="muted">${won}/${c.picks.length} seçim · oran ${c.total_odds}</span>${profit}</summary>
+    ${c.settlement_warning ? `<p class="muted">${esc(c.settlement_warning)}</p>` : ""}
     <table><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Skor</th><th>Sonuç</th></tr>${c.picks.map(chPickRow).join("")}</table></details>`;
 }
 

@@ -14,6 +14,7 @@ from ..config import LEAGUES
 from ..db import session
 from . import engine
 from .blend import blend_predictions
+from .settlement import SUPPORTED_MARKETS
 
 TZ = ZoneInfo("Europe/Istanbul")
 LOOKAHEAD_DAYS = 60
@@ -40,6 +41,8 @@ def _choices(prediction: dict, iddaa_odds: dict) -> list[dict]:
     out = []
     available = {**prediction.get("markets", {}), **prediction.get("extra_markets", {})}
     for market, item in available.items():
+        if market not in SUPPORTED_MARKETS:
+            continue  # ilk yarı/handikap için ortak sonuç verisi henüz tutulmuyor
         if item.get("p") is None:  # korner/kart için geçmiş veri yok; oranı kupona model gibi sokma
             continue
         claude = item.get("suggested")

@@ -40,7 +40,7 @@ def _refresh_if_stale():
     if time.monotonic() - _stamp["checked"] < STAMP_TTL:
         return
     with session() as conn:
-        current = get_meta(conn, "last_updated_at")
+        current = (get_meta(conn, "last_updated_at"), get_meta(conn, "update_data_version"))
     with _lock:
         _stamp["checked"] = time.monotonic()
         if current != _stamp["value"]:

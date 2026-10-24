@@ -7,16 +7,13 @@
   Tek seçim yattıysa kupon hemen yatmıştır; ertelenen / iptal edilen maç oranı 1.00 sayılır (void).
 * history(): tutma oranı, "her gün KUPON_BASINA 100 TL" kâr/zarar + ROI ve günlük liste.
 """
-import re
-from datetime import datetime, timedelta, timezone
+from datetime import datetime, timezone
 
 from .coupons import TZ, build_coupons
+from .settlement import outcome, selection_state, SUPPORTED_MARKETS
 
 STAKE = 100.0  # simülasyon: her gün, her kupona yatırılan TL
 KINDS = ("banko", "surprise")
-VOID_AFTER_DAYS = 7  # bu kadar gün geçtiği halde bitmeyen maç iptal sayılır
-_VOID_STATUS = ("postpon", "cancel", "abandon", "suspend")  # ESPN durum metni (küçük harf)
-_TOTALS = re.compile(r"^([ÜA])(\d\.\d)$")
 
 
 def _now() -> datetime:
@@ -25,15 +22,8 @@ def _now() -> datetime:
 
 def pick_result(market: str, home_goals: int, away_goals: int) -> str | None:
     """Skora göre 'won' / 'lost'; tanınmayan pazar için None (seçim bekliyor kalır)."""
-    h, a = home_goals, away_goals
-    rules = {"1": h > a, "X": h == a, "2": h < a, "1X": h >= a, "12": h != a, "X2": h <= a,
-             "KG Var": h > 0 and a > 0, "KG Yok": h == 0 or a == 0, "Ev 0.5Ü": h >= 1, "Dep 0.5Ü": a >= 1}
-    if market in rules:
-        won = rules[market]
-    elif m := _TOTALS.match(market):
-        total, line = h + a, float(m.group(2))
-        won = total > line if m.group(1) == "Ü" else total < line
-    else:
+    won = outcome(market, home_goals, away_goals)
+    if won is None:
         return None
     return "won" if won else "lost"
 
@@ -93,19 +83,44 @@ def freeze_if_today(coupons: dict) -> list[str]:
         return []
 
 
+def daily_coupons(target, build=build_coupons) -> dict:
+    """Web ve Telegram aynı (gün, tür) kaydını yayımlar; alternatifler canlı kalır."""
+    from ..db import session
+    built = build(target)
+    with session() as conn:
+        if target == _now().astimezone(TZ).date():
+            freeze(conn, built)
+        for kind in KINDS:
+            row = conn.execute("SELECT * FROM saved_coupons WHERE day=? AND kind=?",
+                               (target.isoformat(), kind)).fetchone()
+            if not row:
+                continue
+            picks = []
+            for p in conn.execute("SELECT * FROM saved_coupon_picks WHERE day=? AND kind=? ORDER BY kickoff, match_id",
+                                  (target.isoformat(), kind)):
+                picks.append({"id": p["match_id"], "league": p["league"], "league_name": p["league_name"],
+                              "home": p["home"], "away": p["away"], "kickoff": p["kickoff"],
+                              "market": p["market"], "odds": p["odds"], "odds_source": p["odds_source"],
+                              "p": p["probability"], "model_probability": p["probability"]})
+            published = {"type": kind, "picks": picks, "total_odds": row["total_odds"],
+                         "total_probability": row["total_probability"], "odds_source": row["odds_source"],
+                         "iddaa_picks": sum(p["odds_source"] == "iddaa" for p in picks),
+                         "coupon_id": f"{target.isoformat()}:{kind}:v1", "publication": "published",
+                         "published_at": row["created_at"], "stake_note": (built.get(kind) or {}).get("stake_note", "")}
+            signature = lambda c: frozenset((str(p["id"]), p["market"]) for p in c.get("picks", []))
+            live = [{**c, "publication": "live"} for c in built.get(f"{kind}_alternatives", [])
+                    if signature(c) != signature(published)]
+            built[kind] = published
+            built[f"{kind}_alternatives"] = [published, *live]
+    return built
+
+
 # --- Sonuçlandırma -------------------------------------------------------------------
 def _pick_outcome(row) -> tuple[str, int | None, int | None]:
     """Bekleyen bir seçimin (durum, ev golü, dep golü) bilgisi; maç bitmediyse ('pending', None, None)."""
-    if row["completed"] and row["home_goals"] is not None and row["away_goals"] is not None:
-        res = pick_result(row["market"], row["home_goals"], row["away_goals"])
-        return (res or "pending"), row["home_goals"], row["away_goals"]
-    status = (row["match_status"] or "").lower()
-    kickoff = datetime.fromisoformat(row["kickoff"].replace("Z", "+00:00"))
-    if any(w in status for w in _VOID_STATUS) and _now() > kickoff + timedelta(days=1):
-        return "void", None, None
-    if _now() > kickoff + timedelta(days=VOID_AFTER_DAYS):
-        return "void", None, None
-    return "pending", None, None
+    state = selection_state(row["market"], row["kickoff"], _now(), completed=row["completed"],
+                            home_goals=row["home_goals"], away_goals=row["away_goals"], status=row["match_status"])
+    return state, row["home_goals"] if row["completed"] else None, row["away_goals"] if row["completed"] else None
 
 
 def settle(conn) -> dict:
@@ -180,6 +195,9 @@ def history(conn, days: int = 60) -> dict:
         c = {k: r[k] for k in ("day", "kind", "total_odds", "total_probability", "odds_source", "status",
                                "created_at", "settled_at")}
         c["picks"] = picks_by.get((c["day"], c["kind"]), [])
+        c["coupon_id"] = f"{c['day']}:{c['kind']}:v1"
+        c["settlement_warning"] = "Desteklenmeyen eski pazar: sonuç elle doğrulanmalı" if any(
+            p["market"] not in SUPPORTED_MARKETS for p in c["picks"]) else None
         c["effective_odds"] = effective_odds(c["picks"])
         c["profit"] = coupon_profit(c)
         coupons.append(c)
