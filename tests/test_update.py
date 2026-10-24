@@ -57,8 +57,9 @@ class UpdaterTests(unittest.TestCase):
             self.assertFalse(updater.acquire_lock(conn, 3))
             set_meta(conn, "update_lock", iso(-1))  # süresi geçmiş kilit
         with db.session() as conn:
-            self.assertTrue(updater.acquire_lock(conn, 3))
-            updater.release_lock(conn)
+            token = updater.acquire_lock(conn, 3)
+            self.assertTrue(token)
+            updater.release_lock(conn, token)
         with db.session() as conn:
             self.assertTrue(updater.acquire_lock(conn, 3))
 

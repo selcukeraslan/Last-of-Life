@@ -9,8 +9,8 @@ from datetime import datetime, timedelta, timezone
 
 from ..config import LEAGUES, is_cup
 from ..db import get_meta, init_db, session, set_meta
-from . import coupon_history
-from .engine import LeagueModel, _load
+from . import coupon_history, snapshots
+from .engine import LeagueModel, _load, walkforward_samples
 from .ratings import Elo, Strengths
 
 META_KEY = "model_report"
@@ -27,18 +27,9 @@ def league_samples(done: list[dict], min_history: int = 120) -> list[dict]:
     """Her maç için yalnız öncesindeki veriyle 1X2 olasılıkları + gerçek sonuç."""
     if len(done) <= min_history:
         return []
-    base = LeagueModel("", [], [], {})
-    elo = Elo()
-    for m in done[:min_history]:
-        elo.update(m)
     out = []
-    for idx in range(min_history, len(done)):
-        m = done[idx]
-        hist = done[:idx]
-        p = base.predict(m["home"], m["away"], m["ts"], strengths=Strengths(hist, m["ts"]), elo=elo,
-                         history=hist, news={}, detail=False)["markets"]
+    for m, p in walkforward_samples("", done, min_history):
         out.append({"day": m["kickoff"][:10], "probs": [p["1"]["p"], p["X"]["p"], p["2"]["p"]], "actual": _outcome(m)})
-        elo.update(m)
     return out
 
 
@@ -101,7 +92,13 @@ def build(min_history: int = 120) -> dict:
         except Exception:
             conn.rollback()
             coupons = None
-    return {"computed_at": datetime.now(timezone.utc).isoformat(), "overall": metrics(everything),
+    with session() as conn:
+        try:
+            prospective = snapshots.report(conn)
+        except Exception:
+            conn.rollback()
+            prospective = {"available": False}
+    return {"prospective": prospective, "computed_at": datetime.now(timezone.utc).isoformat(), "overall": metrics(everything),
             "leagues": sorted(leagues, key=lambda r: -r["n"]), "calibration": calibration(everything),
             "trend": trend(everything), "coupons": coupons}
 

@@ -1,0 +1,27 @@
+name: Backtest worker
+on:
+  schedule:
+    - cron: '7,22,37,52 * * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: backtest-worker
+  cancel-in-progress: false
+jobs:
+  worker:
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: pip
+      - run: pip install -r requirements.txt
+      - run: python scripts/ensure_schema.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+      - run: python -m app.backtest_jobs
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}

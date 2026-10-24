@@ -226,10 +226,10 @@ def request_reset(email: str) -> str | None:
 
 
 def send_reset_email(to: str, link: str):
-    """SMTP_HOST tanımlıysa e-posta gönderir; değilse bağlantıyı sunucu çıktısına yazar."""
+    """SMTP yoksa token veya hesap bilgisi loglanmadan gönderim atlanır."""
     host = os.environ.get("SMTP_HOST")
     if not host:
-        print(f"[auth] SMTP yapılandırılmamış. {to} için şifre sıfırlama bağlantısı: {link}", flush=True)
+        print("[auth] SMTP yapılandırılmamış; sıfırlama e-postası gönderilemedi.", flush=True)
         return
     try:
         msg = EmailMessage()
@@ -244,7 +244,7 @@ def send_reset_email(to: str, link: str):
                 smtp.login(os.environ["SMTP_USER"], os.environ.get("SMTP_PASSWORD", ""))
             smtp.send_message(msg)
     except Exception as exc:  # yanıt hesap varlığını sızdırmasın; hata yalnız günlüğe (bağlantı yazılmaz)
-        print(f"[auth] sıfırlama e-postası gönderilemedi: {exc!r}", flush=True)
+        print(f"[auth] sıfırlama e-postası gönderilemedi ({type(exc).__name__}).", flush=True)
 
 
 def consume_reset(token: str, password: str) -> bool:

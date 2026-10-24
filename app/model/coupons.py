@@ -13,7 +13,7 @@ from zoneinfo import ZoneInfo
 from ..config import LEAGUES
 from ..db import session
 from . import engine
-from .blend import blend_predictions
+from .blend import blend_predictions, devig
 from .settlement import SUPPORTED_MARKETS
 
 TZ = ZoneInfo("Europe/Istanbul")
@@ -39,6 +39,8 @@ SURPRISE_MARKETS = {"X", "2", "Ü2.5", "Ü3.5", "KG Var", "A2.5"}
 def _choices(prediction: dict, iddaa_odds: dict) -> list[dict]:
     """Bir maçın seçilebilir pazarları; oran = iddaa varsa iddaa, yoksa Claude oranı."""
     out = []
+    if prediction.get("small_league") and devig([iddaa_odds.get(k) for k in ("1", "X", "2")]) is None:
+        return out
     available = {**prediction.get("markets", {}), **prediction.get("extra_markets", {})}
     for market, item in available.items():
         if market not in SUPPORTED_MARKETS:
@@ -46,9 +48,12 @@ def _choices(prediction: dict, iddaa_odds: dict) -> list[dict]:
         if item.get("p") is None:  # korner/kart için geçmiş veri yok; oranı kupona model gibi sokma
             continue
         claude = item.get("suggested")
-        if not claude or claude < 1.01:
-            continue
         theirs = iddaa_odds.get(market)
+        if prediction.get("small_league"):
+            if not prediction.get("data_availability", {}).get("market_probabilities") or not theirs or theirs < 1.01:
+                continue
+        elif not claude or claude < 1.01:
+            continue
         odds, source = (round(theirs, 2), "iddaa") if theirs and theirs >= 1.01 else (claude, "claude")
         out.append({"market": market, "p": item["p"], "odds": odds, "odds_source": source,
                     "iddaa_odds": theirs if source == "iddaa" else None, "claude_odds": claude,
@@ -61,11 +66,15 @@ def _match_view(prediction: dict, choice: dict) -> dict:
             "league_name": prediction.get("league_name") or LEAGUES.get(prediction["league"], {}).get("name", prediction["league"]),
             "kickoff": prediction["kickoff"],
             "home": prediction["home"], "away": prediction["away"], **choice,
-            "model_probability": choice["p"]}
+            "model_probability": prediction.get("markets", {}).get(choice["market"], {}).get("model_p", choice["p"]),
+            "probability_source": "iddaa_market" if prediction.get("small_league") else
+                                  "blend" if prediction.get("blend", {}).get("applied") else "model"}
 
 
 def small_league_recommendation(prediction: dict, choices: list[dict] | None = None) -> dict | None:
     """Küçük ligdeki maç için mevcut düşük güven seçim kuralına uyan en olası pazarı bul."""
+    if prediction.get("small_league") and not prediction.get("data_availability", {}).get("market_probabilities"):
+        return None
     choices = choices if choices is not None else _choices(prediction, prediction.get("iddaa_odds", {}))
     valid = [c for c in choices if c["market"] in {"1", "1X", "X2", "2"} and c["p"] >= 0.50]
     return max(valid, key=lambda c: (c["p"], -c["odds"])) if valid else None
@@ -209,7 +218,7 @@ def select_small_league(entries: list[tuple[dict, list[dict]]]) -> list[dict]:
     """Küçük liglerde 2-4 en olası ayrı maç; oranla tahmini harmanla ve güveni düşük tut."""
     best = []
     for prediction, choices in entries:
-        if not prediction.get("small_league"):
+        if not prediction.get("small_league") or not prediction.get("data_availability", {}).get("market_probabilities"):
             continue
         choice = small_league_recommendation(prediction, choices)
         if choice:
@@ -230,10 +239,10 @@ def build_coupons(target: date) -> dict:
             """SELECT e.id, e.league, e.league_name, e.country, e.kickoff, e.home, e.away,
                       o.market, o.odd
                FROM iddaa_events e LEFT JOIN iddaa_odds o ON o.event_id=e.id
-               WHERE e.is_small=1 AND e.kickoff>=? AND e.kickoff<=? ORDER BY e.kickoff""",
+                WHERE e.is_small=1 AND e.kickoff>=? AND e.kickoff<? AND e.kickoff>? ORDER BY e.kickoff""",
             (datetime.combine(target, datetime.min.time(), TZ).astimezone(timezone.utc).isoformat(),
              datetime.combine(target + timedelta(days=1), datetime.min.time(), TZ)
-             .astimezone(timezone.utc).isoformat())).fetchall()
+             .astimezone(timezone.utc).isoformat(), datetime.now(timezone.utc).isoformat())).fetchall()
     grouped = {}
     for r in rows:
         p = grouped.setdefault(r["id"], {"id": r["id"], "league": r["league"], "country": r["country"],
@@ -250,7 +259,6 @@ def build_coupons(target: date) -> dict:
         "Küçük liglerde veri ve kadro bilgisi sınırlıdır; güven düşüktür. Küçük miktar kullanın, garanti değildir.")
     for pick in small_coupon["picks"]:
         pick["league_name"] = grouped[pick["id"]]["league_name"]
-        pick["country"] = grouped[pick["id"]]["country"]
         pick["country"] = grouped[pick["id"]]["country"]
     banko_note = "Sadece kaybetmeyi göze alabileceğiniz tutarla oynayın."
     surprise_note = "Sürpriz kupon: küçük miktar kullanın; garanti değildir."

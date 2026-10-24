@@ -1,6 +1,5 @@
 """FastAPI uygulaması. Çalıştırma: ./run.sh  (veya .venv/bin/uvicorn app.main:app)"""
 import json
-import threading
 from contextlib import asynccontextmanager
 from datetime import datetime, timedelta, timezone, date
 from typing import Annotated
@@ -10,7 +9,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 from . import auth, explain, odds_history, odds_log, ops, pwa, updater
-from . import live
+from . import live, backtest_jobs
 from .api_odds_history import router as odds_history_router
 from .config import LEAGUES, MODEL, STATIC_DIR, league_aliases, league_slug, resolve_league
 from .db import get_meta, init_db, is_postgres, session
@@ -101,7 +100,7 @@ def _leagues():
 
 @app.get("/api/live")
 def live_scores():
-    return {"matches": live.get_live_matches(), "updated_at": datetime.now(timezone.utc).isoformat()}
+    return live.get_live_snapshot()
 
 
 @app.get("/api/upcoming")
@@ -255,7 +254,7 @@ def _picks(days: int, min_conf: float, category: str):
     if category != "main":
         raise HTTPException(400, "Bilinmeyen öneri kategorisi")
     predictions = [p for lg in LEAGUES for p in engine.get_model(lg).upcoming_predictions(days)
-                   if not p.get("small_league")]
+                   if not p.get("small_league") and parse_ts(p["kickoff"]) > datetime.now(timezone.utc)]
     out = []
     for p in _attach_iddaa_odds(predictions):  # öneri/güven harmanlı olasılıktan hesaplanır
         if p.get("pick") and p["confidence"] >= min_conf:
@@ -305,29 +304,17 @@ def update_status():
     return updater.status()
 
 
-_bt_lock = threading.Lock()
-_bt_state = {"running": False}
-
-
 @app.get("/api/backtest")
 def get_backtest():
-    return {"running": _bt_state["running"], "data": engine.cached_backtest(),
-            "odds_log": odds_log.current_summary()}
+    job = backtest_jobs.status()
+    return {"running": job["status"] in ("queued", "running"), "job": job,
+            "data": engine.cached_backtest(), "odds_log": odds_log.current_summary()}
 
 
 @app.post("/api/backtest", dependencies=[Depends(auth.require_admin)])
 def run_backtest():
-    def job():
-        try:
-            engine.run_backtests()
-        finally:
-            _bt_state["running"] = False
-
-    with _bt_lock:
-        if not _bt_state["running"]:
-            _bt_state["running"] = True
-            threading.Thread(target=job, daemon=True).start()
-    return {"running": True}
+    job = backtest_jobs.request()
+    return {"running": job["status"] in ("queued", "running"), "job": job}
 
 
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")

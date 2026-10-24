@@ -23,6 +23,22 @@ CREATE TABLE IF NOT EXISTS rate_limits (
 
 _cache: dict = {}
 _MAX_ENTRIES = 200
+CACHE_TTL_SECONDS = 30
+
+
+def _next_kickoff(value):
+    if isinstance(value, dict):
+        stamp = value.get("kickoff")
+        if stamp:
+            try:
+                yield datetime.fromisoformat(stamp.replace("Z", "+00:00")).timestamp()
+            except (ValueError, TypeError):
+                pass
+        for child in value.values():
+            yield from _next_kickoff(child)
+    elif isinstance(value, list):
+        for child in value:
+            yield from _next_kickoff(child)
 
 
 def data_version() -> str:
@@ -38,12 +54,14 @@ def cached(key: tuple, build):
     except Exception:  # sürüm okunamıyorsa önbelleği atla
         return build()
     hit = _cache.get(key)
-    if hit and hit[0] == version:
+    now = time.monotonic()
+    if hit and hit[0] == version and now < hit[2]:
         return hit[1]
     value = build()
     if len(_cache) >= _MAX_ENTRIES:
         _cache.clear()
-    _cache[key] = (version, value)
+    remaining = min((t - time.time() for t in _next_kickoff(value) if t > time.time()), default=CACHE_TTL_SECONDS)
+    _cache[key] = (version, value, time.monotonic() + min(CACHE_TTL_SECONDS, remaining))
     return value
 
 
@@ -124,7 +142,9 @@ def install(app):
         ttl = CDN_TTL.get(request.url.path)
         public = os.environ.get("AUTH_REQUIRED") != "1"  # girişe bağlıysa CDN herkese açık önbellek tutmasın
         if ttl and public and request.method == "GET" and response.status_code == 200 and "cache-control" not in response.headers:
-            response.headers["Cache-Control"] = f"public, s-maxage={ttl}, stale-while-revalidate={ttl * 10}"
+            sensitive = request.url.path in {"/api/upcoming", "/api/picks", "/api/coupons", "/api/value-bets", "/api/live"}
+            response.headers["Cache-Control"] = ("public, max-age=0, s-maxage=0, must-revalidate" if sensitive
+                                                  else f"public, s-maxage={ttl}, stale-while-revalidate={ttl * 10}")
         return response
 
     @app.exception_handler(Exception)

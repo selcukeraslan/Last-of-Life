@@ -57,12 +57,13 @@ class AuthTestBase(unittest.TestCase):
         return self.login(email)
 
     def reset_token(self, email="user@example.com"):
-        buf = io.StringIO()
-        with contextlib.redirect_stdout(buf):
+        with patch.object(auth, "send_reset_email") as send:
             r = self.client.post("/api/auth/forgot", json={"email": email})
         self.assertEqual(r.status_code, 200)
-        m = re.search(r"/giris\?reset=([A-Za-z0-9_-]+)", buf.getvalue())
-        return m.group(1) if m else None
+        if not send.called:
+            return None
+        return send.call_args.args[1].split("reset=", 1)[1]
+
 
 
 class RegisterLoginTest(AuthTestBase):
@@ -214,11 +215,16 @@ class PasswordResetTest(AuthTestBase):
 
     def test_link_uses_app_url_not_host_header(self):
         self.register()
-        buf = io.StringIO()
-        with patch.dict("os.environ", {"APP_URL": "https://iddia.example/"}), contextlib.redirect_stdout(buf):
+        with patch.dict("os.environ", {"APP_URL": "https://iddia.example/"}), patch.object(auth, "send_reset_email") as send:
             self.client.post("/api/auth/forgot", json={"email": "user@example.com"}, headers={"host": "evil.test"})
-        self.assertIn("https://iddia.example/giris?reset=", buf.getvalue())
-        self.assertNotIn("evil.test", buf.getvalue())
+        self.assertTrue(send.call_args.args[1].startswith("https://iddia.example/giris?reset="))
+        self.assertNotIn("evil.test", send.call_args.args[1])
+
+    def test_missing_smtp_does_not_log_token_or_email(self):
+        with patch.dict("os.environ", {"SMTP_HOST": ""}), contextlib.redirect_stdout(io.StringIO()) as out:
+            auth.send_reset_email("sensitive@example.com", "https://example.com/giris?reset=secret-token")
+        self.assertNotIn("sensitive@example.com", out.getvalue())
+        self.assertNotIn("secret-token", out.getvalue())
 
     def test_smtp_used_when_configured(self):
         self.register()

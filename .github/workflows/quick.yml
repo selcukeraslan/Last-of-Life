@@ -22,6 +22,10 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install -r requirements.txt
+      - name: İleri şema uyumluluğu
+        run: python scripts/ensure_schema.py
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
       - name: Hızlı güncelle
         timeout-minutes: 5
         env:

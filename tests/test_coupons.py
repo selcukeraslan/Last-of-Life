@@ -160,13 +160,13 @@ class SmallLeagueCouponTest(unittest.TestCase):
             p["small_league"] = True
         self.assertEqual(select_banko(entries), [])
         self.assertEqual(select_surprise(entries), [])
-        self.assertEqual(len(select_small_league(entries)), 4)
+        self.assertEqual(select_small_league(entries), [])  # model-only fixtures are not bulletin data
 
     def test_small_recommendation_uses_existing_probability_and_market_rules(self):
         p, choices = entry(1, {"1": (0.64, 1.55), "1X": (0.88, 1.12), "Ü2.5": (0.91, 1.1)},
                            {"1": 1.6}, league="small:iceland:premier-league")
         p["small_league"] = True
-        self.assertEqual(small_league_recommendation(p, choices)["market"], "1X")
+        self.assertIsNone(small_league_recommendation(p, choices))  # synthetic probabilities cannot enter small coupons
 
         p, choices = entry(2, {"1": (0.49, 1.9), "Ü2.5": (0.91, 1.1)},
                            league="small:iceland:premier-league")
@@ -191,7 +191,8 @@ class SmallLeagueCouponTest(unittest.TestCase):
             p = pred(i, {"1": (0.66, 1.5), "1X": (0.82, 1.2)}, league=f"small:country:league")
             p["small_league"] = True
             p["league_name"] = "Premier League"
-            entries.append((p, _choices(p, {"1": 1.55})))
+            p["data_availability"] = {"market_probabilities": True}
+            entries.append((p, _choices(p, {"1": 1.55, "X": 4.0, "2": 5.0})))
         with patch.object(cp, "LEAGUES", {}):
             picks = select_small_league(entries)
         self.assertEqual(len(picks), 4)

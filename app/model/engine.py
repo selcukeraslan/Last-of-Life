@@ -221,6 +221,25 @@ def get_model(league: str) -> LeagueModel:
     return model
 
 
+def walkforward_samples(league, done, min_history, step=1):
+    """Aynı anda başlayan / henüz bitmemiş maçın sonucu geçmişe sızmasın."""
+    done = sorted(done, key=lambda m: m["ts"])
+    base, elo, cursor = LeagueModel(league, [], [], {}), Elo(), 0
+    for idx in range(min_history, len(done), step):
+        match = done[idx]
+        cutoff = match["ts"] - timedelta(hours=3)
+        while cursor < idx and done[cursor]["ts"] <= cutoff:
+            elo.update(done[cursor])
+            cursor += 1
+        if cursor < min_history:
+            continue
+        hist = done[:cursor]
+        markets = base.predict(match["home"], match["away"], match["ts"],
+                               strengths=Strengths(hist, match["ts"]), elo=elo,
+                               history=hist, news={}, detail=False)["markets"]
+        yield match, markets
+
+
 # --- Geriye dönük test --------------------------------------------------------
 def backtest(league: str, min_history: int | None = None, step: int = 1) -> dict:
     """Her maçı, sadece o maçtan önceki verilerle tahmin edip gerçek sonuçla karşılaştırır.
@@ -241,19 +260,10 @@ def backtest(league: str, min_history: int | None = None, step: int = 1) -> dict
     if len(done) <= min_history:
         return {"league": league, "n": 0}
     blend_eval = BlendEval()
-    base = LeagueModel(league, [], [], {})
-    elo = Elo()
-    for m in done[:min_history]:
-        elo.update(m)
     n = hit = 0
     brier = logloss = 0.0
     ou_hit = 0
-    for idx in range(min_history, len(done), step):
-        m = done[idx]
-        hist = done[:idx]
-        st = Strengths(hist, m["ts"])
-        p = base.predict(m["home"], m["away"], m["ts"], strengths=st, elo=elo, history=hist,
-                         news={}, detail=False)["markets"]
+    for m, p in walkforward_samples(league, done, min_history, step):
         probs = [p["1"]["p"], p["X"]["p"], p["2"]["p"]]
         hg, ag = m["home_goals"], m["away_goals"]
         actual = 0 if hg > ag else 1 if hg == ag else 2
@@ -264,21 +274,22 @@ def backtest(league: str, min_history: int | None = None, step: int = 1) -> dict
         ou_hit += int((p["Ü2.5"]["p"] >= 0.5) == (hg + ag >= 3))
         if m["id"] in logged:
             blend_eval.add(p, logged[m["id"]], hg, ag)
-        for k in range(idx, min(idx + step, len(done))):
-            elo.update(done[k])
+    if not n:
+        return {"league": league, "n": 0}
     return {"league": league, "n": n, "from": done[min_history]["kickoff"][:10],
             "accuracy_1x2": round(hit / n, 3), "brier": round(brier / n, 3),
             "logloss": round(logloss / n, 3), "accuracy_ou25": round(ou_hit / n, 3),
             "blend": blend_eval.result()}
 
 
-def run_backtests() -> dict:
+def run_backtests(persist=True) -> dict:
     # Kupalar için geriye dönük test yok: ligler arası güç, o gün bilinen veriyle yeniden kurulamıyor
     res = {lg: backtest(lg) for lg in LEAGUES if not is_cup(lg)}
-    with session() as conn:
-        import json
-        set_meta(conn, "backtest", json.dumps(res))
-        set_meta(conn, "backtest_at", datetime.now(timezone.utc).isoformat())
+    if persist:
+        with session() as conn:
+            import json
+            set_meta(conn, "backtest", json.dumps(res))
+            set_meta(conn, "backtest_at", datetime.now(timezone.utc).isoformat())
     return res
 
 

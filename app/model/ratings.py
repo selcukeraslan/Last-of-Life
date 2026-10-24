@@ -92,8 +92,9 @@ class Strengths:
             h[0] += w; h[1] += w * hg; h[2] += w * ag
             a = acc[m["away"]]
             a[3] += w; a[4] += w * ag; a[5] += w * hg
-        self.mu_h = sh / sw if sw else 1.45
-        self.mu_a = sa / sw if sw else 1.15
+        # Bir önsel maç: küçük/henüz golsüz örneklemde sıfıra bölünmeyi önler.
+        self.mu_h = (sh + 1.45) / (sw + 1.0)
+        self.mu_a = (sa + 1.15) / (sw + 1.0)
         self.n_weighted = {t: v[0] + v[3] for t, v in acc.items()}
         self.att_h, self.def_h, self.att_a, self.def_a = {}, {}, {}, {}
         mh, ma = self.mu_h, self.mu_a

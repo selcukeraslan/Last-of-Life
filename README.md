@@ -233,3 +233,38 @@ GitHub işi adımlar başlamadan ödeme/harcama limiti nedeniyle reddedilirse, h
 - **/api/update koruması:** IP başına dakikada 5 istek (`rate_limits` tablosu, migration `20261008120000_rate_limits.sql`) + 10 dk cooldown.
 - **/api/health:** DB erişimi, son güncelleme ve iddaa çekimi yaşı; sorun varsa 503. GitHub Actions `health.yml` 30 dakikada bir kontrol eder, başarısızsa workflow fail olur. Sunucu hataları JSON yapılandırılmış log olarak yazılır.
 - **Gizlilik:** Vercel Web Analytics ve Speed Insights çerezsiz çalışır, kişisel veri veya IP saklamaz; yalnızca anonim sayfa görüntüleme ve performans metrikleri toplanır. Script etiketleri (`/_vercel/insights/script.js`, `/_vercel/speed-insights/script.js`) şu an kaldırıldı; Vercel panelinden Analytics ve Speed Insights etkinleştirilince `static/index.html`'e eklenecek.
+
+## Güvenilirlik ve ileriye dönük ölçüm
+
+- Güncelleme kilidi işlem token'ıyla alınır. Yalnız sahibi bırakabilir; her veri commit'inde sahiplik ve
+  süre yeniden kontrol edilip uzatılır. Zaman aşımına uğrayan lig işçisinin geç kalan yazıları geri alınır.
+- Süreç önbelleği en çok 30 saniye ve listedeki ilk maç başlangıcına kadar geçerlidir. Zamana duyarlı
+  öneri uçlarında CDN eski yanıt sunmaz. Günün dondurulmuş kuponu geçmiş kaydı olarak korunur.
+- Küçük lig kuponları tam/geçerli 1X2 bülteni ve gerçek pazar oranı ister. Varsayılan gol modeli yoktur;
+  başlamış maçlar ve ertesi günün gece yarısı listeye alınmaz.
+- Canlı skorlar sınırlı paralellik ve 7 saniyelik toplam bütçeyle çekilir. Lig hatasında son iyi veri ve
+  gerçek son başarı zamanı korunur; arayüz güncel olmayan skoru belirtir.
+- `POST /api/backtest` yönetici isteğini DB kuyruğuna kaydeder. `backtest.yml` yaklaşık 15 dakikada bir
+  kuyruğu kontrol eder; iş kimliği, hata/başarı ve süre sınırı DB'dedir. `GET /api/backtest` durumunu okur.
+  Yerelde işleyici: `python -m app.backtest_jobs`. Geçmiş testte eş zamanlı/son 3 saatte başlamış maçlar
+  eğitim verisinden çıkarılır; gerçek sonuçların bilindiği ana ilişkin sınırlamalar nedeniyle bu hâlâ geriye dönük testtir.
+- `prediction_snapshots` ilk yayımlanan maç öncesi tahmini değiştirmeden saklar: model kod/parametre
+  sürümü, veri sürümü, haber etkisi, saf/harmanlı/piyasa olasılıkları ve o andaki oranlar. Karne, gerçekten
+  yayımlanmış ve sonuçlanmış aynı maç örnekleminde üç varyantın metriklerini/kalibrasyonunu ayrıca gösterir.
+  Veriler bundan sonra birikir; bu özellik anında doğruluk veya kârlılık kanıtı üretmez. İlk yarı/handikap
+  pazarları deneysel etiketlenir ve otomatik kuponlara girmez.
+- SMTP yokken şifre sıfırlama token'ı/e-posta adresi loglanmaz. Gönderim için SMTP yapılandırılmalıdır.
+- Runtime bağımlılıkları `requirements.txt`, test bağımlılıkları `requirements-dev.txt` içinde tüm alt
+  bağımlılıklarıyla sabittir. Güncelleme kaynakları `.in` dosyalarıdır; Python 3.12 için `uv pip compile
+  --universal` ile yeniden çözümlenir. Test kurulumu: `pip install -r requirements-dev.txt`.
+
+### Veritabanı geçişi
+
+Haber migration'ı benzersiz `20261014000001` sürümüne taşındı. `20261024000000_reconcile_and_predictions.sql`,
+eski çakışmada auth veya haber şemasından hangisi eksik kalmış olursa olsun idempotent olarak tamamlar ve
+tahmin tablosunu ekler. Eski migration kayıtlarını silmeyin/değiştirmeyin.
+
+`schema.yml`, main'e migration değişikliği gelince `python scripts/ensure_schema.py` ile yalnız bu ileri
+onarımı uygular; Supabase migration geçmişini değiştirmez. Güncelleme işlerinin ön adımı da aynı onarımı
+kontrol eder. Normal Supabase `db push` sonradan çalıştırılırsa bu idempotent SQL tekrar güvenle uygulanır.
+CI, geçici PostgreSQL 17 üzerinde temiz kurulum + eksik eski şema + tekrar uygulama senaryolarını test eder.

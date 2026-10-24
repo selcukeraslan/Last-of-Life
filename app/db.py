@@ -248,6 +248,7 @@ def init_db():
     """SQLite şemasını oluşturur. Postgres şeması supabase/migrations ile yönetilir."""
     if is_postgres():
         return
+    from .model import snapshots
     from . import odds_log  # import döngüsünü önlemek için burada
 
     with session() as conn:
@@ -265,6 +266,7 @@ def init_db():
         conn.execute("CREATE INDEX IF NOT EXISTS ix_iddaa_events_small_kickoff ON iddaa_events(is_small, kickoff)")
         conn.execute("UPDATE iddaa_events SET is_small=1 WHERE league LIKE 'small:%'")
         conn.executescript(odds_log.SCHEMA)
+        conn.executescript(snapshots.SCHEMA)
         from . import ops
         conn.executescript(ops.SCHEMA)
 
