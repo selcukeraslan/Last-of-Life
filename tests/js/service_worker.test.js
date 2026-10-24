@@ -99,3 +99,12 @@ test("private response removes earlier public value", async () => {
   w.context.fetch = async () => {throw new Error("offline");};
   assert.equal((await w.request("/api/upcoming")).status, 503);
 });
+
+test('league freshness never falls back to a stale API cache', async () => {
+  const w = worker();
+  w.stores.set('public-api-v2', new Map([['https://example.test/api/leagues', new Response('{"last_update":"old"}')]]));
+  w.context.fetch = async () => new Response('{"last_update":"new"}', {headers:{'Cache-Control':'no-store'}});
+  assert.equal((await (await w.request('/api/leagues')).json()).last_update,'new');
+  w.context.fetch = async () => {throw new Error('offline');};
+  await assert.rejects(w.request('/api/leagues'), /offline/);
+});

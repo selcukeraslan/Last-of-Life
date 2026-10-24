@@ -58,4 +58,8 @@ class OpsTests(unittest.TestCase):
     def test_health_endpoint_status_and_cdn_header(self):
         client = TestClient(main.app)
         self.assertEqual(client.get("/api/health").status_code, 503)
-        self.assertIn("s-maxage", client.get("/api/leagues").headers["cache-control"])
+        for path in ("/api/leagues", "/api/update/status"):
+            headers = client.get(path).headers
+            self.assertEqual(headers["cache-control"], "no-store")
+            self.assertEqual(headers["cdn-cache-control"], "no-store")
+            self.assertEqual(headers["vercel-cdn-cache-control"], "no-store")

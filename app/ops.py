@@ -139,6 +139,11 @@ def install(app):
     @app.middleware("http")
     async def _cdn_cache(request: Request, call_next):
         response = await call_next(request)
+        if request.url.path in {"/api/leagues", "/api/update/status"}:
+            response.headers["Cache-Control"] = "no-store"
+            response.headers["CDN-Cache-Control"] = "no-store"
+            response.headers["Vercel-CDN-Cache-Control"] = "no-store"
+            return response
         ttl = CDN_TTL.get(request.url.path)
         public = os.environ.get("AUTH_REQUIRED") != "1"  # girişe bağlıysa CDN herkese açık önbellek tutmasın
         if ttl and public and request.method == "GET" and response.status_code == 200 and "cache-control" not in response.headers:

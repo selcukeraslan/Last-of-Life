@@ -77,7 +77,7 @@ function fmtAgo(iso) {
 function showLastUpdate() {
   const el = $("#lastUpdate");
   const iso = state.lastUpdate;
-  el.textContent = iso ? fmtAgo(iso) + " güncellendi" : "Henüz veri yok";
+  el.textContent = iso ? fmtAgo(iso) + " güncellendi" : state.catalogFallback ? "Son güncelleme doğrulanamadı" : "Henüz veri yok";
   el.title = iso ? fmtDateTime(iso) : "";
 }
 function formDots(s) { return `<span class="formdots">${[...(s || "")].map((c) => `<span class="f-${c}">${c}</span>`).join("")}</span>`; }
@@ -104,14 +104,23 @@ function renderLeagueChips() {
 }
 
 async function loadLeagues() {
-  const d = await api("/api/leagues");
+  let d;
+  try {
+    d = await api(UpdateStatus.freshUrl("/api/leagues"), { cache: "no-store" });
+    state.catalogFallback = false;
+    try { localStorage.setItem("leagueCatalog.v1", JSON.stringify({ leagues: d.leagues, small_leagues: d.small_leagues })); } catch (_) {}
+  } catch (error) {
+    try { d = JSON.parse(localStorage.getItem("leagueCatalog.v1")); } catch (_) {}
+    if (!d?.leagues) throw error;
+    state.catalogFallback = true; // çevrimdışı katalogda güncelleme zamanı tutulmaz
+  }
   state.leagues = d.leagues;
   state.smallLeagues = d.small_leagues || [];
   const selected = [...state.leagues, ...state.smallLeagues].find((l) =>
     l.id === state.league || l.slug === state.league || l.name === state.league || l.aliases?.includes(state.league));
   state.league = selected?.id || state.leagues[0]?.id || "tur.1";
   localStorage.setItem("league", state.league);
-  state.lastUpdate = d.last_update;
+  UpdateStatus.apply(state, d);
   showLastUpdate();
   renderLeagueChips();
 }
@@ -317,6 +326,8 @@ function updateMessage(r) {
 }
 
 async function showUpdateResult(r) {
+  UpdateStatus.apply(state, r);
+  showLastUpdate();
   const bar = $("#updateBar");
   bar.classList.remove("hidden");
   bar.textContent = updateMessage(r);
@@ -326,15 +337,20 @@ async function showUpdateResult(r) {
 }
 
 async function pollUpdate() {
-  const s = await api("/api/update/status");
+  const s = await api("/api/update/status", { cache: "no-store" });
+  const changed = UpdateStatus.apply(state, s);
+  showLastUpdate();
   const bar = $("#updateBar");
   $("#btnUpdate").disabled = s.running;
   if (s.running) {  // başka biri (veya cron) güncelliyor
     bar.classList.remove("hidden");
     bar.textContent = "Güncelleniyor: " + (s.message || "lütfen bekleyin");
-    setTimeout(pollUpdate, 3000);
+    setTimeout(() => pollUpdate().catch(showLastUpdate), 3000);
   } else if (!bar.classList.contains("hidden")) {
     await showUpdateResult(s);
+  } else if (changed) {
+    await loadLeagues();
+    await render();
   }
 }
 $("#leagueChips").addEventListener("click", (e) => {
@@ -383,7 +399,7 @@ $("#btnUpdate").addEventListener("click", async () => {
   const btn = $("#btnUpdate"), bar = $("#updateBar");
   btn.disabled = true;
   bar.classList.remove("hidden");
-  bar.textContent = "Güncelleniyor… (birkaç saniye sürebilir)";
+  bar.textContent = "Maçlar ve oranlar güncelleniyor… Birkaç dakika sürebilir.";
   try {
     const r = await api("/api/update", { method: "POST" });
     if (r.status === "busy") pollUpdate(); else await showUpdateResult(r);
@@ -400,7 +416,10 @@ function shiftCouponDay(n) { const d = new Date(state.couponDate + "T12:00:00Z")
 $("#couponPrev").addEventListener("click", () => shiftCouponDay(-1));
 $("#couponNext").addEventListener("click", () => shiftCouponDay(1));
 
-setInterval(showLastUpdate, 30000);
+setInterval(() => {
+  if (!document.hidden) pollUpdate().catch(showLastUpdate);
+  else showLastUpdate();
+}, 30000);
 setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshLive(); });
 (async () => {
@@ -409,7 +428,7 @@ document.addEventListener("visibilitychange", () => { if (!document.hidden) refr
   const hashTab = location.hash.slice(1);
   if (document.getElementById("tab-" + hashTab)) setTab(hashTab);
   render();
-  pollUpdate();
+  pollUpdate().catch(showLastUpdate);
   const sharedMatch = new URLSearchParams(location.search).get("match");  // SEO sayfasından gelen /?match=<id>
   if (sharedMatch) openMatch(sharedMatch);
 })();
