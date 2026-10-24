@@ -25,3 +25,17 @@ test('league list puts high, medium and low confidence before limited-data rows'
   assert.deepEqual(Simple.sortMatches(rows).map(m=>m.id),['higher','high','medium','low','unknown']);
   assert.equal(rows[0].id,'low');
 });
+
+test('quick filters combine confidence, Istanbul day and live state', () => {
+  const rows = [
+    {id:'a',kickoff:'2026-10-23T22:00Z',summary:{level:3}},
+    {id:'b',kickoff:'2026-10-24T18:00Z',summary:{level:2}},
+    {id:'c',kickoff:'2026-10-24T22:00Z',summary:{level:3}},
+  ];
+  const now=Date.parse('2026-10-24T10:00Z');
+  const live=new Map([['a',{state:'in'}],['b',{state:'post'}]]);
+  assert.deepEqual(Simple.filterMatches(rows,{today:true},live,now).map(m=>m.id),['a','b']);
+  assert.deepEqual(Simple.filterMatches(rows,{today:true,high:true,live:true},live,now).map(m=>m.id),['a']);
+  assert.deepEqual(Simple.filterMatches(rows,{live:true},live,now).map(m=>m.id),['a']);
+  assert.equal(Simple.filterMatches(rows,{},live,now).length,3);
+});

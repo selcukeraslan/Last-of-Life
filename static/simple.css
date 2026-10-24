@@ -134,3 +134,5 @@ table { max-width: 100%; }
   .hero .pick-text > b { font-size: 20px; }
 }
 .seg button { flex: 1 1 0; padding: 0 8px; font-size: 13px; }
+
+.match-filters { display: flex; flex-wrap: wrap; gap: 8px; }

@@ -166,14 +166,14 @@
   function resultHtml(s) {
     if (s.stake === null) return `<p class="muted">Olası kazancı görmek için yatırılacak tutarı girin.</p>`;
     return `<div class="slip-result">
-      <div><small>Olası kazanç</small><b class="slip-win">${money(s.payout)}</b></div>
-      <div><small>Net kâr (tutarsa)</small><b>${money(s.profit)}</b></div>
+      <div><small>${s.status === "won" ? "Hesaplanan kazanç" : s.status === "lost" ? "Kazanç" : "Olası kazanç"}</small><b class="slip-win">${money(s.status === "lost" ? 0 : s.payout)}</b></div>
+      <div><small>${s.status === "pending" ? "Net kâr (tutarsa)" : "Hesaplanan net sonuç"}</small><b>${money(s.status === "lost" ? -s.stake : s.profit)}</b></div>
 </div>`;
   }
   function summaryHtml(s) {
-    return `<div class="slip-stats">
+    return `<p role="status"><b>${{won: "Kazandı", lost: "Kaybetti", pending: "Bekliyor", empty: "Boş"}[s.status]}</b> · Tutan: ${s.wonCount} · Yatan: ${s.lostCount} · Bekleyen: ${s.pendingCount} seçim · Kalan: ${s.remainingMatches} maç</p><div class="slip-stats">
       <div><small>Toplam oran</small><b>${s.totalOdds.toFixed(2)}</b></div>
-      <div><small>Tutma şansı</small><b>${pct(s.totalProbability, s.totalProbability < 0.1 ? 1 : 0)}</b></div>
+      <div><small>${s.status === "pending" ? "İlk tahmini tutma şansı" : "Sonuç"}</small><b>${pct(s.totalProbability, s.totalProbability < 0.1 ? 1 : 0)}</b></div>
 </div>`;
   }
   function sourceBadge(s) {

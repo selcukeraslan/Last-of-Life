@@ -27,7 +27,7 @@ BOOK_MIN, BOOK_MAX = 0.98, 1.50
 
 def devig(odds: list[float]) -> list[float] | None:
     """Oranlardan marjı temizlenmiş olasılıklar (toplam 1); oranlar geçersizse None."""
-    if not odds or any(not isinstance(o, (int, float)) or o <= 1.0 for o in odds):
+    if not odds or any(isinstance(o, bool) or not isinstance(o, (int, float)) or not math.isfinite(o) or o <= 1.0 for o in odds):
         return None
     book = sum(1 / o for o in odds)
     if not BOOK_MIN <= book <= BOOK_MAX:
@@ -87,14 +87,12 @@ def blend_markets(model_markets: dict, iddaa_odds: dict, weight: float | None = 
 
 def blend_prediction(pred: dict, iddaa_odds: dict, weight: float | None = None) -> dict:
     """Tek maç tahminini iddaa oranlarıyla harmanlar (yeni sözlük döner). Oran yoksa model aynen kalır;
-    harmanlandıysa öneri (`pick`) ve güven yeniden hesaplanır. `blend` alanı ne yapıldığını söyler."""
+    Gerçek oran varsa, harman grubu eksik olsa da öneri mevcut pazarlardan yeniden seçilir."""
     w = _clamp(MODEL["market_weight"] if weight is None else weight)
     markets, groups = blend_markets(pred["markets"], iddaa_odds, w)
-    if not groups:
-        return {**pred, "blend": {"applied": False, "weight": w, "groups": []}}
-    out = {**pred, "markets": markets, "blend": {"applied": True, "weight": w, "groups": groups}}
+    out = {**pred, "markets": markets, "blend": {"applied": bool(groups), "weight": w, "groups": groups}}
     if "pick" in pred:
-        out["pick"] = P.best_pick(markets)
+        out["pick"] = P.best_pick(markets, actual_odds=iddaa_odds or None)
     if "data_quality" in pred:
         pick = out.get("pick")
         n_min = pred.get("data_n", pred["data_quality"] * 15)

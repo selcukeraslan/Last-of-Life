@@ -8,6 +8,7 @@ const api = async (url, opts) => {
 };
 
 const savedLeague = localStorage.getItem("league") || "tur.1";
+const matchFilters = {high: false, today: false, live: false};
 const state = { league: savedLeague, tab: "matches", leagues: [], smallLeaguesOpen: savedLeague.startsWith("small:"), couponDate: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), couponReq: 0, matchReq: 0, live: new Map() };
 
 function selectionResult(market, h, a, state) {
@@ -63,6 +64,7 @@ async function refreshLive() {
     window.Slip?.updateLive();
     if (state.tab === "slip") Slip.render();
     window.Extras?.onLive();
+    if (state.tab === "matches" && matchFilters.live && state.matchList) drawMatchList();
   } catch { if ($("#liveState")) $("#liveState").textContent = "Canlı skorlar güncellenemedi; son alınan veriler gösteriliyor."; }
 }
 
@@ -150,8 +152,19 @@ async function renderMatches() {
   renderOddsDrops();
   window.Today?.render();
   const query = new URLSearchParams({ league: state.league, days: "14" });
-  const list = Simple.sortMatches(await api(`/api/upcoming?${query}`));
-  if (!list.length) { el.innerHTML = Ui.empty("Maç bulunamadı", "Önümüzdeki 14 günde maç yok. Verileri güncellemeyi deneyin."); return; }
+  const league = state.league;
+  const incoming = await api(`/api/upcoming?${query}`);
+  if (state.league !== league) return;
+  state.matchList = Simple.sortMatches(incoming);
+  drawMatchList();
+  renderTable();
+}
+
+function drawMatchList() {
+  const el = $("#matches"), all = state.matchList || [];
+  const list = Simple.filterMatches(all, matchFilters, state.live);
+  const filters = `<div class="fav-bar match-filters" aria-label="Maç filtreleri">${[["high", "Yüksek güven"], ["today", "Bugün"], ["live", "Canlı"]].map(([key, label]) => `<button type="button" class="chip${matchFilters[key] ? " active" : ""}" data-match-filter="${key}" aria-pressed="${matchFilters[key]}">${label}</button>`).join("")}</div>`;
+
   const selectedLeague = [...state.leagues, ...(state.smallLeagues || [])].find((l) => l.id === state.league);
   const leagueTitle = selectedLeague ? `${selectedLeague.country ? esc(selectedLeague.country) + " · " : ""}${esc(selectedLeague.name)}` : "";
   let html = "", lastLevel = null;
@@ -163,9 +176,12 @@ async function renderMatches() {
     }
     html += matchCard(m);
   }
-  el.innerHTML = (window.Extras ? Extras.filterButton() : "") + (leagueTitle ? `<div class="day-head">${leagueTitle}</div>` : "") + html;
+  el.innerHTML = filters + (window.Extras ? Extras.filterButton() : "") + (leagueTitle ? `<div class="day-head">${leagueTitle}</div>` : "") + (html || Ui.empty("Bu filtrelere uygun maç yok", "Filtreleri kapatarak diğer maçları görebilirsiniz."));
+  el.querySelectorAll("[data-match-filter]").forEach((button) => button.addEventListener("click", () => {
+    matchFilters[button.dataset.matchFilter] = !matchFilters[button.dataset.matchFilter];
+    drawMatchList();
+  }));
   window.Extras?.afterMatches(list);
-  renderTable();
 }
 
 async function renderCoupons() {

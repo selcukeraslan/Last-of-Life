@@ -18,6 +18,13 @@
       || String(a.id).localeCompare(String(b.id)));
   }
 
+  function filterMatches(matches, filters = {}, live = new Map(), now = Date.now()) {
+    const day = (value) => new Date(value).toLocaleDateString("sv-SE", {timeZone: "Europe/Istanbul"});
+    return matches.filter((m) => (!filters.high || confidenceLevel(m) === 3)
+      && (!filters.today || day(m.kickoff) === day(now))
+      && (!filters.live || live.get(String(m.id))?.state === "in"));
+  }
+
   function headline(market) {
     if (["1", "X", "2", "1X", "X2", "12"].includes(market)) return "MS " + market;
     const m = /^([ÜA])(\d+(?:\.\d+)?)$/.exec(market || "");
@@ -72,5 +79,5 @@
     </div>${s.reason ? `<p class="pick-why">${esc(s.reason)}</p>` : ""}`;
   }
 
-  return { headline, title, info, levelBadge, oddsBox, pickBlock, confidenceLevel, sortMatches };
+  return { headline, title, info, levelBadge, oddsBox, pickBlock, confidenceLevel, sortMatches, filterMatches };
 });

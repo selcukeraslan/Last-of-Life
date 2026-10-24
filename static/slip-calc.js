@@ -159,13 +159,19 @@
     const impossible = sameMatch.some((g) => g.impossible);
     const naiveProbability = count ? rows.reduce((acc, r) => acc * r.p, 1) : 0;
     const totalOdds = count ? round2(rows.reduce((acc, r) => acc * (r.odds ?? 1), 1)) : 0;
-    const totalProbability = impossible ? 0 : naiveProbability;
+    const wonCount = rows.filter((r) => r.completed && RULES[r.market](r.result.home_goals, r.result.away_goals)).length;
+    const lostCount = rows.filter((r) => r.completed && !RULES[r.market](r.result.home_goals, r.result.away_goals)).length;
+    const pendingCount = count - wonCount - lostCount;
+    const remainingMatches = new Set(rows.filter((r) => !r.completed).map((r) => r.id)).size;
+    const status = !count ? "empty" : lostCount || impossible ? "lost" : pendingCount ? "pending" : "won";
+    // İlk tahmini, canlı skorla yeniden hesaplanmış olasılık gibi göstermeyelim.
+    const totalProbability = status === "lost" ? 0 : status === "won" ? 1 : naiveProbability;
     const ev = count ? totalProbability * totalOdds - 1 : null;
     const iddaaCount = rows.filter((r) => r.source === "iddaa").length;
 
     const money = stake !== null && stake !== undefined && Number.isFinite(stake) && stake >= 0 && count > 0;
     return {
-      rows, count, sameMatch, impossible, iddaaCount,
+      rows, count, sameMatch, impossible, iddaaCount, wonCount, lostCount, pendingCount, remainingMatches, status,
       claudeCount: rows.filter((r) => r.source === "claude").length,
       startedCount: rows.filter((r) => r.started).length,
       finishedCount: rows.filter((r) => r.completed).length,

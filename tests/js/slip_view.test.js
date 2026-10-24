@@ -24,6 +24,8 @@ test('Kuponum renders the final score and does not erase it when today live feed
   assert.match(node.innerHTML,/Bitti/);
   assert.match(node.innerHTML,/2–1/);
   assert.match(node.innerHTML,/Tuttu/);
+  assert.match(node.innerHTML,/Kazandı/);
+  assert.match(node.innerHTML,/Kalan: 0 maç/);
   assert.doesNotMatch(node.innerHTML,/>başladı</);
   window.Slip.updateLive();
   assert.match(node.innerHTML,/2–1/);
