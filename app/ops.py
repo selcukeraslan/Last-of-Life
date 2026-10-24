@@ -28,7 +28,7 @@ _MAX_ENTRIES = 200
 def data_version() -> str:
     """Önbellek anahtarı: veri güncellemeleri (ESPN + iddaa) değişince önbellek kendiliğinden geçersiz olur."""
     with session() as conn:
-        return "|".join(str(get_meta(conn, k) or "") for k in ("last_updated_at", "last_update", "iddaa_last_update"))
+        return "|".join(str(get_meta(conn, k) or "") for k in ("last_updated_at", "last_update", "iddaa_last_update", "update_data_version"))
 
 
 def cached(key: tuple, build):
@@ -93,6 +93,7 @@ def health() -> dict:
             out["db"] = True
             out["update_age_seconds"] = _age(get_meta(conn, "last_updated_at") or get_meta(conn, "last_update"))
             out["iddaa_age_seconds"] = _age(get_meta(conn, "iddaa_last_update"))
+            out["sources"] = json.loads(get_meta(conn, "update_sources", "{}"))
     except Exception as exc:
         log.error(json.dumps({"event": "health_db_error", "error": repr(exc)}))
         out["problems"].append("db")
@@ -102,6 +103,10 @@ def health() -> dict:
                              ("iddaa_stale", out["iddaa_age_seconds"], MAX_IDDAA_AGE)):
         if age is None or age > limit:
             out["problems"].append(name)
+    for key, source in out["sources"].items():
+        age = _age(source.get("last_success_at"))
+        if source.get("status") != "success" or age is None or age > (24 * 3600 if key == "news" else MAX_UPDATE_AGE):
+            out["problems"].append(f"source_stale:{key}")
     out["ok"] = not out["problems"]
     return out
 

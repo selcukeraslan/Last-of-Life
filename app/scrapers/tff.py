@@ -113,7 +113,7 @@ def _store(conn, result: dict) -> int:
     return len(result["matches"])
 
 
-def sync_league(conn, league: str, progress=None) -> int:
+def sync_league(conn, league: str, progress=None, strict=False) -> int:
     """Sezonun oynanmış haftalarını ve yakın haftaları çeker; tamamlanan haftalar bir sonraki sefer atlanır."""
     first = fetch_week(league)
     current, total = first["week"] or 1, first["total_weeks"] or 38
@@ -126,6 +126,8 @@ def sync_league(conn, league: str, progress=None) -> int:
             progress(f"{league}: {week}. hafta çekiliyor")
         result = first if week == current else fetch_week(league, week)
         if result["week"] not in (None, week):
+            if strict:
+                raise RuntimeError(f"{league}: istenen {week}. hafta yerine {result['week']}. hafta döndü")
             continue  # sayfa istenen haftayı göstermedi; yanlış haftayı yazma
         count += _store(conn, result)
         if contiguous and result["matches"] and all(m["completed"] for m in result["matches"]):
@@ -138,12 +140,14 @@ def sync_league(conn, league: str, progress=None) -> int:
     return count
 
 
-def sync_recent(conn, league: str, days_back: int = 3, max_requests: int = 2, progress=None) -> tuple[int, bool]:
+def sync_recent(conn, league: str, days_back: int = 3, max_requests: int = 2, progress=None, strict=False) -> tuple[int, bool]:
     """Hızlı güncelleme: bu hafta + önceki hafta (en çok `max_requests` istek, kısa zaman aşımı)."""
     count, ok = 0, False
     try:
         current = fetch_week(league, timeout=12, retries=2)
     except Exception as exc:
+        if strict:
+            raise
         if progress:
             progress(f"{league}: alınamadı ({exc})")
         return 0, False
@@ -154,6 +158,8 @@ def sync_recent(conn, league: str, days_back: int = 3, max_requests: int = 2, pr
         try:
             count += _store(conn, fetch_week(league, week - 1, timeout=12, retries=2))
         except Exception as exc:
+            if strict:
+                raise
             if progress:
                 progress(f"{league}: {week - 1}. hafta alınamadı ({exc})")
     return count, ok

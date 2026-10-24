@@ -86,7 +86,7 @@ def upsert(conn, m: dict):
     )
 
 
-def _walk(conn, league: str, day: date, end: date, progress=None, checkpoint=None) -> int:
+def _walk(conn, league: str, day: date, end: date, progress=None, checkpoint=None, strict=False) -> int:
     """day..end aralığını haftalık pencerelerle çeker; her adımda checkpoint(day) çağrılır."""
     count = 0
     while day <= end:
@@ -95,6 +95,8 @@ def _walk(conn, league: str, day: date, end: date, progress=None, checkpoint=Non
         try:
             window = fetch_window(league, day)
         except Exception as exc:  # ağ hatası: bir sonraki pencereye geç
+            if strict:
+                raise RuntimeError(f"{league}: {day} alınamadı: {exc}") from exc
             if progress:
                 progress(f"{league}: {day} alınamadı ({exc})")
             day += timedelta(days=3)
@@ -118,7 +120,7 @@ def _walk(conn, league: str, day: date, end: date, progress=None, checkpoint=Non
     return count
 
 
-def backfill_league(conn, league: str, progress=None) -> int:
+def backfill_league(conn, league: str, progress=None, strict=False) -> int:
     """HISTORY_START ile veritabanının kapsadığı ilk gün arasındaki eksik geçmişi doldurur."""
     covered = get_meta(conn, f"espn_from_{league}")
     if covered is None:
@@ -132,17 +134,17 @@ def backfill_league(conn, league: str, progress=None) -> int:
     resume = get_meta(conn, key)
     day = max(HISTORY_START, date.fromisoformat(resume)) if resume else HISTORY_START
     n = _walk(conn, league, day, covered, progress,
-              lambda d: set_meta(conn, key, min(d, covered).isoformat()))
+              lambda d: set_meta(conn, key, min(d, covered).isoformat()), strict=strict)
     set_meta(conn, f"espn_from_{league}", HISTORY_START.isoformat())
     conn.execute("DELETE FROM meta WHERE key=?", (key,))
     return n
 
 
-def sync_league(conn, league: str, progress=None) -> int:
+def sync_league(conn, league: str, progress=None, strict=False) -> int:
     """Ligi kaldığı yerden günceller. Dönen değer: işlenen maç sayısı."""
     today = date.today()
     end = today + timedelta(days=FIXTURE_DAYS_AHEAD)
-    count = backfill_league(conn, league, progress)
+    count = backfill_league(conn, league, progress, strict=strict)
     done = get_meta(conn, f"espn_done_{league}")
     if done is None:
         set_meta(conn, f"espn_from_{league}", HISTORY_START.isoformat())
@@ -150,13 +152,13 @@ def sync_league(conn, league: str, progress=None) -> int:
     # kaldığı yeri kaydet (yarıda kesilirse baştan başlamasın); son 5 gün hep yeniden kontrol edilir
     count += _walk(conn, league, day, end, progress,
                    lambda d: set_meta(conn, f"espn_done_{league}",
-                                      min(d, today - timedelta(days=5)).isoformat()))
+                                      min(d, today - timedelta(days=5)).isoformat()), strict=strict)
     # Son 5 günü her seferinde yeniden kontrol et (ertelenen/yeni biten maçlar)
     set_meta(conn, f"espn_done_{league}", (today - timedelta(days=5)).isoformat())
     return count
 
 
-def sync_recent(conn, league: str, days_back: int = 3, max_requests: int = 2, progress=None) -> tuple[int, bool]:
+def sync_recent(conn, league: str, days_back: int = 3, max_requests: int = 2, progress=None, strict=False) -> tuple[int, bool]:
     """Hızlı artımlı güncelleme: yalnız son `days_back` gün ve yakın fikstür (istek başına ~1 haftalık pencere).
 
     Dönen değer: (işlenen maç sayısı, en az bir istek başarılı mı). Serverless istek süresine sığması için
@@ -174,6 +176,8 @@ def sync_recent(conn, league: str, days_back: int = 3, max_requests: int = 2, pr
         try:
             window = fetch_window(league, day, timeout=12, retries=2)
         except Exception as exc:
+            if strict:
+                raise RuntimeError(f"{league}: {day} alınamadı: {exc}") from exc
             if progress:
                 progress(f"{league}: {day} alınamadı ({exc})")
             day += timedelta(days=3)

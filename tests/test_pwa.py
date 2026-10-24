@@ -1,5 +1,8 @@
 import asyncio
 import json
+import os
+import shutil
+import subprocess
 import struct
 import tempfile
 import unittest
@@ -70,6 +73,17 @@ class ManifestTest(unittest.TestCase):
 
 
 class ServiceWorkerTest(unittest.TestCase):
+    def test_gated_site_does_not_precache_login_redirect_as_shell(self):
+        with patch.dict(os.environ, {"AUTH_REQUIRED": "1"}):
+            self.assertNotIn("/", pwa.precache_urls())
+            self.assertIn("const AUTH_REQUIRED = true", pwa.render_sw())
+
+    @unittest.skipUnless(shutil.which("node"), "node kurulu değil")
+    def test_service_worker_privacy_and_offline_behavior(self):
+        run = subprocess.run(["node", "--test", "tests/js/service_worker.test.js"],
+                             cwd=STATIC_DIR.parent, capture_output=True, text=True, timeout=30)
+        self.assertEqual(run.returncode, 0, run.stdout + run.stderr)
+
     def test_served_from_root_with_scope_header(self):
         status, headers, body = asgi_get("/sw.js")
         self.assertEqual(status, 200)

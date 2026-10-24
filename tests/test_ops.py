@@ -45,6 +45,16 @@ class OpsTests(unittest.TestCase):
             db.set_meta(conn, "iddaa_last_update", now)
         self.assertTrue(ops.health()["ok"])
 
+    def test_health_does_not_hide_failed_source_behind_recent_global_stamp(self):
+        import json
+        with db.session() as conn:
+            now = ops.datetime.now(ops.timezone.utc).isoformat()
+            db.set_meta(conn, "last_updated_at", now)
+            db.set_meta(conn, "iddaa_last_update", now)
+            db.set_meta(conn, "update_sources", json.dumps({"eng.1": {"status": "error", "last_success_at": now}}))
+        self.assertFalse(ops.health()["ok"])
+        self.assertIn("source_stale:eng.1", ops.health()["problems"])
+
     def test_health_endpoint_status_and_cdn_header(self):
         client = TestClient(main.app)
         self.assertEqual(client.get("/api/health").status_code, 503)

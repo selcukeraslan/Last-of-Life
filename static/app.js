@@ -310,6 +310,7 @@ async function render() {
 function updateMessage(r) {
   if (r.status === "cooldown") return `Veriler yakın zamanda güncellendi; ${Math.max(1, Math.ceil(r.cooldown_seconds / 60))} dk sonra tekrar güncelleyebilirsiniz.`;
   if (r.status === "busy") return "Başka bir güncelleme sürüyor…";
+  if (r.status === "partial" || r.outcome === "partial") return "Veriler kısmen güncellendi. " + (r.error || "Bazı kaynaklara ulaşılamadı.");
   if (r.status === "error" || r.error) return "Hata: " + (r.error || "güncellenemedi");
   return "Güncelleme tamamlandı.";
 }

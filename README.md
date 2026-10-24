@@ -36,8 +36,11 @@ Herkese açık (Vercel) kurulumda veri ortak Supabase Postgres'tedir; biri günc
 - `meta` tablosu: `last_updated_at` (son başarılı güncelleme), `update_lock` (kilidin bitiş zamanı; zaman aşımlı).
 - **Verileri güncelle** (`POST /api/update`): istek içinde senkron, hızlı artımlı güncelleme (iddaa oranları +
   ESPN son 3 gün). Arka plan thread'i yoktur; kilit eşzamanlı çalışmayı engeller, son güncellemeden sonra
-  10 dk bekleme vardır (`status`: `updated` | `cooldown` | `busy` | `error`). Durum: `GET /api/update/status`.
-- Ağır tam güncelleme + haberler: `.github/workflows/update.yml` her 30 dk (`workflow_dispatch` ile elle de);
+  10 dk bekleme vardır (`status`: `updated` | `partial` | `cooldown` | `busy` | `error`). Yönetici oturumu gerekir.
+  Durum: `GET /api/update/status`; `sources` alanında lig/iddaa/haber bazında son deneme, son başarı ve hata bulunur.
+  Yalnız istenen kaynakların hepsi başarılıysa `last_updated_at` ilerler; boş ama başarılı kaynak yanıtı hata sayılmaz.
+  Kısmi güncellemede modellerin önbelleği de yenilenir; CLI kısmi başarısızlıkta sıfır olmayan çıkış kodu verir.
+- Ağır tam güncelleme + haberler: `.github/workflows/update.yml` üç saatte bir; hızlı iş `quick.yml` 15 dakikada bir (`workflow_dispatch` ile elle de);
   `DATABASE_URL` GitHub secret'ından okunur.
 
 ## Veri kaynakları (anahtar gerekmez)
@@ -111,6 +114,13 @@ ertelenen/iptal maç, oran 1.00) işaretlenir; tek seçim yattıysa kupon hemen 
 tutma sayısı, "her gün her kupona 100 TL yatırsaydın" kâr/zarar + ROI (yalnız sonuçlanan kuponlar, kayıtlı oranla) ve günlük
 liste vardır. API: `GET /api/coupon-history?days=60`. Kod: `app/model/coupon_history.py`.
 
+Web ve Telegram günün ilk kaydedilen Banko/Sürpriz kuponunu ortak kayıttan okur. Her kaydın
+`coupon_id` / `published_at` bilgisi vardır; sonradan hesaplanan alternatifler arayüzde ayrı etiketlenir.
+Otomatik kuponlarda yalnız tam maç skoruyla sonuçlandırılabilen pazarlar kullanılır; ilk yarı ve handikap
+pazarları otomatik seçilmez. Geçmiş ve Telegram aynı sonuç/iptal kurallarını kullanır: ertelenmiş/iptal
+durumu bir gün sonra, sonuç alınamayan maç yedi gün sonra iptal sayılır. Eski desteklenmeyen seçimler
+otomatik iade sayılmaz; geçmişte elle doğrulama uyarısıyla görünür.
+
 **Değerli Oranlar** sekmesi yaklaşan (başlamamış) maçlarda modelin olasılığını iddaa.com oranıyla karşılaştırır;
 EV = olasılık × oran − 1 > 0 olan seçimleri EV'ye göre sıralar (pazar, seçim, model %, iddaa oranı, örtük %,
 EV %, maç/lig/saat). Min. olasılık ve min. EV filtreleri vardır; iddaa oranı olmayan pazar/maç listeye girmez,
@@ -121,7 +131,7 @@ maç detayındaki her pazar (1X2, çifte şans, Alt/Üst 1.5-2.5-3.5, KG) için 
 (iddaa oranı varsa o, yoksa Claude oran), model tutma ihtimali (seçim olasılıklarının çarpımı), EV ve
 yatırılan tutardan olası kazanç gösterilir; aynı maçtan birden fazla seçim ya da birlikte tutamayacak seçimler
 (örn. 1 ve X) uyarılır. Kupon sunucuya gitmez, tarayıcının `localStorage`'ında (`iddiaoran.slip.v1`) durur; sekme
-açılınca oranlar `/api/match/{id}` ile yenilenir. Hesaplar `static/slip-calc.js` (saf JS, `node --test tests/js/`;
+açılınca oranlar `/api/match/{id}` ile yenilenir. Hesaplar `static/slip-calc.js` (saf JS, `node --test tests/js/*.test.js`;
 `unittest discover` de node varsa bunu çalıştırır), arayüz `static/slip.js` + `static/slip.css`.
 
 **Model** sekmesindeki geriye dönük test her maçı sadece öncesindeki verilerle tahmin edip doğruluğu ölçer.
@@ -156,10 +166,12 @@ Site yüklenebilir bir PWA'dır (Android/Chrome "Uygulamayı yükle", iOS Safari
 
 - `app/pwa.py`: `/manifest.webmanifest` (`application/manifest+json`) ve `/sw.js` (kökten, kapsam `/`; `no-cache`).
   Vercel'de tüm yollar FastAPI'ye gittiği için başlıklar burada ayarlanır.
-- `app/sw.js` (service worker şablonu): `/` + `static/` önbelleğe alınır (cache-first); önbellek adı `static/`
+- `app/sw.js` (service worker şablonu): giriş zorunlu değilse `/` + `static/` önbelleğe alınır (cache-first); önbellek adı `static/`
   içeriğinin özetinden türetilir, yani statik dosya değişince otomatik yeni sürüm kurulur ve "Yeni sürüm hazır" bandı çıkar.
-  `/api` GET istekleri network-first: ağ yok/yavaş (8 sn)/5xx ise son kaydedilen yanıt gösterilir ve "kayıtlı veri
-  gösteriliyor" bandı çıkar (`/api/update*` hiç önbelleğe alınmaz). ESPN takım logoları cache-first.
+  Yalnız açıkça `Cache-Control: public` olan `/api` GET yanıtları network-first saklanır: ağ yok/yavaş (8 sn)/5xx
+  ise kayıtlı yanıt gösterilir. Auth/güncelleme yolları, `private`/`no-store` yanıtlar ve giriş zorunlu kurulumun
+  API'leri saklanmaz. Giriş/çıkış/şifre sıfırlama sonrasında API önbelleği temizlenir; eski `api-v1` önbelleği
+  yeni worker etkinleşince silinir. ESPN takım logoları cache-first.
 - `static/pwa.js`: kayıt + çevrimdışı/güncelleme bandı. `static/icons/`: 192/512 + maskable + apple-touch-icon;
   `python scripts/make_pwa_icons.py` ile yeniden üretilir (saf Python).
 - Yerelde de çalışır (`localhost` güvenli bağlam sayılır). Sorun olursa tarayıcıda DevTools → Application → Service Workers.
@@ -192,7 +204,7 @@ static/                web arayüzü
 data/iddia.db          yerel SQLite veritabanı (DATABASE_URL yoksa; otomatik oluşur)
 supabase/migrations/   Postgres şeması
 scripts/               bir kerelik SQLite -> Postgres aktarımı
-.github/workflows/     30 dk'lık tam güncelleme + saatlik Telegram paylaşımı (cron)
+.github/workflows/     test CI + 3 saatlik tam / 15 dk'lık hızlı güncelleme + Telegram paylaşımı
 ```
 
 ## Notlar
@@ -201,6 +213,19 @@ scripts/               bir kerelik SQLite -> Postgres aktarımı
 - iddaa.com yalnızca o anda maç öncesi bülteninde yayımlanan oranları döndürür. Uzak tarihli veya henüz
   oran açılmamış ESPN fikstürlerinde iddaa oranı `-` görünür; Claude oranı gösterilmeye devam eder.
 - Tahminler istatistiksel tahmindir, kesinlik içermez. Sorumlu oynayın.
+
+## Otomatik testler
+
+Push ve pull request'lerde `.github/workflows/tests.yml`, Python 3.12 ve Node 22 üzerinde gerçek
+veritabanı secret'ı olmadan SQLite testlerini ve JS paketini çalıştırır. Yerelde:
+
+```sh
+python -m unittest discover -s tests -t .
+node --test tests/js/*.test.js
+```
+
+GitHub işi adımlar başlamadan ödeme/harcama limiti nedeniyle reddedilirse, hesap sahibinin
+**Settings → Billing & plans** bölümünü düzeltmesi gerekir; workflow dosyasını değiştirmek bu engeli çözmez.
 
 ## Performans, izleme ve gizlilik
 

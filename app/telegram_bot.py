@@ -23,13 +23,14 @@ from datetime import date, datetime, timedelta, timezone
 
 from .db import init_db, session
 from .model.coupons import TZ, build_coupons
+from .model.settlement import outcome, selection_state, VOID_AFTER_DAYS
+from .model.coupon_history import daily_coupons
 
 API_URL = "https://api.telegram.org/bot{token}/{method}"
 MORNING_START_HOUR = 9   # Türkiye saati: kupon bu saatten önce gönderilmez
 MORNING_END_HOUR = 15    # ... ve bu saatten sonra gönderilmez (başlamış maçlarla boş kalmasın)
 STALE_CLAIM_MINUTES = 30  # çöken çalıştırmanın bıraktığı 'sending' kaydı bu süreden sonra yeniden alınır
-VOID_AFTER_HOURS = 8      # başlangıçtan bu kadar sonra hâlâ bitmeyen maç sonuçsuz (iptal/ertelendi) sayılır
-RESULT_LOOKBACK_DAYS = 3  # sonucu bu kadar güne kadar geriye dönük bekle
+RESULT_LOOKBACK_DAYS = VOID_AFTER_DAYS + 2
 
 MONTHS = ["Ocak", "Şubat", "Mart", "Nisan", "Mayıs", "Haziran", "Temmuz", "Ağustos", "Eylül", "Ekim",
           "Kasım", "Aralık"]
@@ -103,6 +104,7 @@ def _compact_coupon(coupon: dict) -> dict:
     """Veritabanında saklanacak (sonucu değerlendirmeye yetecek) kupon özeti."""
     return {"type": coupon["type"], "total_odds": coupon["total_odds"],
             "total_probability": coupon["total_probability"],
+            "coupon_id": coupon.get("coupon_id"), "published_at": coupon.get("published_at"),
             "picks": [{k: p[k] for k in ("id", "league_name", "kickoff", "home", "away", "market", "odds", "p")}
                       for p in coupon["picks"]]}
 
@@ -122,16 +124,7 @@ def format_coupon_message(day: str, coupons: list[dict]) -> str:
 
 def pick_outcome(market: str, home_goals: int, away_goals: int) -> bool | None:
     """Pazarın tuttuğu mu? Tanınmayan pazar için None."""
-    total = home_goals + away_goals
-    rules = {
-        "1": home_goals > away_goals, "X": home_goals == away_goals, "2": home_goals < away_goals,
-        "1X": home_goals >= away_goals, "12": home_goals != away_goals, "X2": home_goals <= away_goals,
-        "KG Var": home_goals > 0 and away_goals > 0, "KG Yok": home_goals == 0 or away_goals == 0,
-    }
-    for line in ("1.5", "2.5", "3.5"):
-        rules["Ü" + line] = total > float(line)
-        rules["A" + line] = total < float(line)
-    return rules.get(market)
+    return outcome(market, home_goals, away_goals)
 
 
 def settle_coupon(coupon: dict, results: dict[str, dict], now: datetime) -> dict | None:
@@ -139,16 +132,12 @@ def settle_coupon(coupon: dict, results: dict[str, dict], now: datetime) -> dict
     Dönüş: {"status": won|lost|void, "odds": etkin oran, "picks": [{...pick, state, score}]}."""
     settled, odds = [], 1.0
     for p in coupon["picks"]:
-        res = results.get(str(p["id"]))
-        if res and res["completed"] and res["home_goals"] is not None and res["away_goals"] is not None:
-            hit = pick_outcome(p["market"], res["home_goals"], res["away_goals"])
-            state = "void" if hit is None else ("won" if hit else "lost")
-            score = f"{res['home_goals']}-{res['away_goals']}"
-        else:
-            kickoff = datetime.fromisoformat(p["kickoff"].replace("Z", "+00:00"))
-            if now < kickoff + timedelta(hours=VOID_AFTER_HOURS):
-                return None
-            state, score = "void", None
+        res = results.get(str(p["id"])) or {}
+        state = selection_state(p["market"], p["kickoff"], now, completed=res.get("completed"),
+                                home_goals=res.get("home_goals"), away_goals=res.get("away_goals"), status=res.get("status"))
+        if state == "pending":
+            return None
+        score = f"{res['home_goals']}-{res['away_goals']}" if state in ("won", "lost") else None
         if state == "won":
             odds *= p["odds"]
         settled.append({**p, "state": state, "score": score})
@@ -231,7 +220,7 @@ def post_daily_coupons(now: datetime, send, force: bool = False, day: date | Non
         if conn.execute("SELECT 1 FROM telegram_posts WHERE day=? AND kind='coupon' AND status='sent'",
                         (key,)).fetchone():
             return "kupon: bugün zaten gönderildi"
-    built = build(target)
+    built = daily_coupons(target, build=build)
     coupons = [_compact_coupon(built[k]) for k in ("banko", "surprise") if built[k]["picks"]]
     if not coupons:
         return "kupon: uygun kupon yok"
@@ -254,7 +243,7 @@ def post_results(now: datetime, send) -> list[str]:
         with session() as conn:
             marks = ",".join("?" for _ in ids)
             results = {r["id"]: dict(r) for r in conn.execute(
-                f"SELECT id, completed, home_goals, away_goals FROM matches WHERE id IN ({marks})", ids)}
+                f"SELECT id, completed, home_goals, away_goals, status FROM matches WHERE id IN ({marks})", ids)}
         settled = {}
         for c in coupons:
             s = settle_coupon(c, results, now)

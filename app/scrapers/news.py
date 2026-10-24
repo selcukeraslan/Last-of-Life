@@ -118,7 +118,7 @@ def fetch_team_news(team: str, lang: str, limit: int = 25) -> list[dict]:
     return items
 
 
-def sync_news(conn, days_ahead: int = 10, progress=None, budget_sec: float | None = 900) -> int:
+def sync_news(conn, days_ahead: int = 10, progress=None, budget_sec: float | None = 900, strict=False) -> int:
     """Önümüzdeki maçları olan takımlar için haberleri günceller."""
     now = datetime.now(timezone.utc)
     rows = conn.execute(
@@ -132,6 +132,8 @@ def sync_news(conn, days_ahead: int = 10, progress=None, budget_sec: float | Non
     started = time.monotonic()
     for i, r in enumerate(rows, 1):
         if budget_sec and time.monotonic() - started > budget_sec:
+            if strict:
+                raise RuntimeError(f"Haber süre sınırı doldu ({i - 1}/{len(rows)})")
             if progress:
                 progress(f"Haber süre sınırı doldu ({i - 1}/{len(rows)}); kalanlar sonraki turda")
             break
@@ -141,6 +143,8 @@ def sync_news(conn, days_ahead: int = 10, progress=None, budget_sec: float | Non
         try:
             items = fetch_team_news(r["team"], lang)
         except Exception as exc:
+            if strict:
+                raise RuntimeError(f"Haber alınamadı: {r['team']}: {exc}") from exc
             if progress:
                 progress(f"Haber alınamadı: {r['team']} ({exc})")
             continue

@@ -159,7 +159,50 @@ class UpdaterTests(unittest.TestCase):
                 patch.object(updater.tff, "sync_recent", return_value=(1, True)), \
                 patch.object(updater.iddaa, "sync_odds", return_value={}):
             result = updater.run_quick_update()
-        self.assertEqual(result["status"], "updated")  # yavaş lig tüm güncellemeyi bloklamadı
+        self.assertEqual(result["status"], "partial")
+        self.assertIsNone(result["last_updated_at"])
+        self.assertEqual(result["sources"]["tur.1"]["status"], "error")
+
+    def test_full_update_cannot_succeed_when_every_source_fails(self):
+        with patch.object(updater.espn, "sync_league", side_effect=RuntimeError("offline")), \
+                patch.object(updater.tff, "sync_league", side_effect=RuntimeError("offline")), \
+                patch.object(updater.iddaa, "sync_odds", side_effect=RuntimeError("offline")), \
+                patch.object(updater, "_track_coupons"):
+            self.assertEqual(updater.run_update(with_news=False), "error")
+        self.assertIsNone(self.meta("last_updated_at"))
+        self.assertEqual(updater.status()["outcome"], "failed")
+        self.assertFalse(updater.status()["running"])
+
+    def test_partial_update_retains_previous_success_time_and_reports_source(self):
+        old = iso(-60)
+        self.set("last_updated_at", old)
+        with patch.object(updater.espn, "sync_league", return_value=0), \
+                patch.object(updater.tff, "sync_league", return_value=0), \
+                patch.object(updater.iddaa, "sync_odds", side_effect=RuntimeError("offline")), \
+                patch.object(updater, "_track_coupons"):
+            self.assertEqual(updater.run_update(with_news=False), "error")
+        state = updater.status()
+        self.assertEqual(state["outcome"], "partial")
+        self.assertEqual(state["last_updated_at"], old)
+        self.assertIsNotNone(state["sources"]["eng.1"]["last_success_at"])
+        self.assertIsNone(state["sources"]["iddaa"]["last_success_at"])
+        self.assertIsNotNone(self.meta("update_data_version"))
+
+    def test_source_recovers_without_losing_history_on_failure(self):
+        with patch.object(updater.espn, "sync_recent", return_value=(0, True)), \
+                patch.object(updater.tff, "sync_recent", return_value=(0, True)), \
+                patch.object(updater.iddaa, "sync_odds", return_value={}), \
+                patch.object(updater, "_track_coupons"):
+            self.assertEqual(updater.run_quick_update()["status"], "updated")
+        last = updater.status()["sources"]["eng.1"]["last_success_at"]
+        self.set("last_updated_at", iso(-60))
+        with patch.object(updater.espn, "sync_recent", side_effect=RuntimeError("offline")), \
+                patch.object(updater.tff, "sync_recent", return_value=(0, True)), \
+                patch.object(updater.iddaa, "sync_odds", return_value={}), \
+                patch.object(updater, "_track_coupons"):
+            state = updater.run_quick_update()
+        self.assertEqual(state["status"], "partial")
+        self.assertEqual(state["sources"]["eng.1"]["last_success_at"], last)
 
 
 if __name__ == "__main__":

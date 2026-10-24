@@ -12,6 +12,11 @@ const coupon = (type, overrides = {}) => ({
   stake_note: "Bilgilendirme", ...overrides,
 });
 
+test("published daily coupon and live alternatives are visibly distinguished", () => {
+  assert.match(CouponView.couponCard(coupon("banko", {publication: "published"}), "Banko", "b-good"), /Günün yayımlanan kuponu/);
+  assert.match(CouponView.couponCard(coupon("banko", {publication: "live"}), "Banko", "b-good"), /Güncel alternatif/);
+});
+
 test("coupon card builds its rows and escapes match text", () => {
   const html = CouponView.couponCard(coupon("banko"), "Banko Kuponu 1", "b-good");
   assert.match(html, /&lt;A&gt;/);

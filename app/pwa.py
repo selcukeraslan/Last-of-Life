@@ -2,6 +2,7 @@
 doğru Content-Type / kapsam başlıklarıyla sunulur (sw.js kökten, kapsam "/")."""
 import hashlib
 import json
+import os
 
 from fastapi import APIRouter, Response
 
@@ -42,13 +43,15 @@ def _static_files() -> list:
 
 
 def precache_urls() -> list[str]:
-    return ["/", "/manifest.webmanifest"] + ["/static/" + p.relative_to(STATIC_DIR).as_posix() for p in _static_files()]
+    shell = [] if os.environ.get("AUTH_REQUIRED") == "1" else ["/"]
+    return shell + ["/manifest.webmanifest"] + ["/static/" + p.relative_to(STATIC_DIR).as_posix() for p in _static_files()]
 
 
 def cache_version() -> str:
     """Statik dosyalar, manifest veya sw.js değişince değişir → yeni service worker + yeni önbellek."""
     h = hashlib.sha1(SW_TEMPLATE.read_bytes())
     h.update(json.dumps(MANIFEST, sort_keys=True).encode())
+    h.update(str(os.environ.get("AUTH_REQUIRED") == "1").encode())
     for path in [STATIC_DIR / "index.html", *_static_files()]:
         h.update(path.relative_to(STATIC_DIR).as_posix().encode())
         h.update(path.read_bytes())
@@ -58,6 +61,7 @@ def cache_version() -> str:
 def render_sw() -> str:
     return (SW_TEMPLATE.read_text(encoding="utf-8")
             .replace("__VERSION__", cache_version())
+            .replace("__AUTH_REQUIRED__", json.dumps(os.environ.get("AUTH_REQUIRED") == "1"))
             .replace("__PRECACHE__", json.dumps(precache_urls())))
 
 
