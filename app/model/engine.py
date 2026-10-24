@@ -148,7 +148,7 @@ class LeagueModel:
         news_teams = sum(1 for t in (home, away) if news.get(t, {}).get("relevant", 0) > 0)
         out.update({
             "pick": pick,
-            **P.confidence(pick["p"] if pick else None, n_min, news_teams),
+            **P.confidence(pick["p"] if pick else None, n_min),
             "news_teams": news_teams,
             "data_n": round(n_min, 2),
             "data_quality": round(data_q, 4),  # iddaa oranlarıyla harmanlarken güven yeniden hesaplanır

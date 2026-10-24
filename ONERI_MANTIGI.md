@@ -4,7 +4,7 @@
 
 Takımların geçmiş maçları zaman ağırlığıyla değerlendirilir (yarı ömür 200 gün); az veride lig ortalamasına yaklaşılır. Hücum/savunma gücü ve Elo, beklenen golleri oluşturur. Son form, dinlenme ve ilgili haberlerin etkisi eklenir. Dixon–Coles düzeltmeli Poisson skor dağılımından pazar olasılıkları çıkarılır. Tam ve geçerli iddaa oran grupları varsa marjı temizlenerek modelle %50 harmanlanır. Eksik gruplar model olasılığında kalır.
 
-Güven etiketi olasılık, takımların veri miktarı ve haber kapsamıyla sınırlanan bir sezgiseldir; “Yüksek güven” ölçülmüş kazanma yüzdesi demek değildir. Haber olmaması “eksik oyuncu yok” olarak yorumlanmaz.
+Güven etiketi olasılık ve takımların geçmiş maç miktarından hesaplanan bir göstergedir; “Yüksek güven” ölçülmüş kazanma yüzdesi demek değildir. Haber olmaması “eksik oyuncu yok” diye yorumlanmaz ve tek başına güveni düşürmez. Daha önce haber bulunmamasına otomatik “Düşük” kısıtı uygulanıyordu; haber verisi yokken bütün maçları gereksiz yere aşağı çekebildiği için kaldırıldı.
 
 ## İsabet öncelikli seçim (`hit_rate_v1`)
 
