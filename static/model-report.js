@@ -1,10 +1,16 @@
+function confidenceReportHtml(report) {
+  if (!report) return "";
+  const rows = report.groups || [];
+  return `<div class="card"><h3>Güvene göre gerçek öneri başarısı</h3><p class="muted">İlk yayımlandığında kaydedilen önerinin sonucu. Lig, güven ve model sürümü ayrı ölçülür. Tutma oranı, kazanç oranı değildir. Az maçta sonuçlar belirsizdir; aralık yaklaşık %95 belirsizliği gösterir.</p>${rows.length ? `<div class="mr-scroll"><table><tr><th>Lig</th><th>Güven</th><th>Tutan / maç</th><th>Gerçek isabet</th><th>Tahmini şans</th><th>%95 aralık</th><th>Sürüm / yöntem</th></tr>${rows.map((r) => `<tr><td>${esc(state.leagues.find((l) => l.id === r.league)?.name || r.league)}</td><td>${esc(r.confidence_label)}</td><td>${r.won} / ${r.n}</td><td>${mrPct(r.hit_rate)}</td><td>${mrPct(r.predicted_probability)}</td><td>${mrPct(r.interval95[0])}–${mrPct(r.interval95[1])}</td><td>${esc(r.version.slice(0, 8))} / ${r.policy === "hit_rate_v1" ? "İsabet öncelikli" : esc(r.policy)}</td></tr>`).join("")}</table></div>` : `<p class="muted">Henüz sonuçlanan kayıtlı öneri yok. Yeni maçlar sonuçlandıkça bu tablo dolacak.</p>`}<p class="muted">Güven etiketi kaydedilmemiş ${Number(report.legacy_without_confidence) || 0} eski maç bu ölçüme alınmadı.</p></div>`;
+}
+
 function prospectiveHtml(forward) {
   if (forward?.variants) {
     const rows = Object.entries(forward.variants).map(([name, v]) => {
       const m = v.metrics;
       return `<tr><td>${esc(name)}</td><td>${m.n || 0}</td><td>${m.brier ?? "—"}</td><td>${m.logloss ?? "—"}</td></tr>`;
     }).join("");
-    return `<div class="card"><h3>Yayımlanmış tahminlerin gerçek sonuçları</h3><p class="muted">İlk maç öncesi kayıtlar; üç varyant aynı maçlarda karşılaştırılır. Kayıtlı tahmin: ${Number(forward.stored) || 0}. Sonuçlar veri biriktikçe oluşur. Yukarıdaki geçmiş testten ayrıdır.</p><table><tr><th>Varyant</th><th>Maç</th><th>Brier</th><th>Log-loss</th></tr>${rows}</table></div>`;
+    return `<div class="card"><h3>Yayımlanmış tahminlerin gerçek sonuçları</h3><p class="muted">İlk maç öncesi kayıtlar; üç varyant aynı maçlarda karşılaştırılır. Kayıtlı tahmin: ${Number(forward.stored) || 0}. Sonuçlar veri biriktikçe oluşur. Yukarıdaki geçmiş testten ayrıdır.</p><table><tr><th>Varyant</th><th>Maç</th><th>Brier</th><th>Log-loss</th></tr>${rows}</table></div>` + confidenceReportHtml(forward.recommendations);
   }
   return "";
 }

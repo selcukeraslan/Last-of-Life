@@ -1,6 +1,7 @@
 """Yayımlanan tahminin değişmez, maç öncesi kaydı ve ileriye dönük ölçümü."""
 import hashlib
 import json
+import math
 from datetime import datetime, timezone
 from functools import lru_cache
 from ..config import BASE_DIR, MODEL
@@ -47,6 +48,8 @@ def record(conn, predictions):
         payload = {'model': {k: v.get('model_p', v.get('p')) for k, v in markets.items()},
                    'blend': {k: v.get('p') for k, v in markets.items()},
                    'market': {k: v.get('market_p') for k, v in markets.items()},
+                   'pick': p.get('pick'), 'confidence_label': p.get('confidence_label'),
+                   'confidence': p.get('confidence'),
                    'odds': p.get('iddaa_odds', {}), 'news': p.get('factors', {}).get('news'),
                    'blend_settings': p.get('blend'), 'extra_markets': p.get('extra_markets', {})}
         rows.append((str(p['id']), p['league'], p['kickoff'], at.isoformat(), version, data_version, parameters, json.dumps(payload)))
@@ -76,6 +79,8 @@ def report(conn):
     samples = {k: [] for k in ('model', 'blend', 'market')}
     market_scores = {}
     versions = set()
+    recommendation_groups = {}
+    legacy = 0
     for r in rows:
         captured = datetime.fromisoformat(r['captured_at'].replace('Z', '+00:00'))
         if captured >= datetime.fromisoformat(r['actual_kickoff'].replace('Z', '+00:00')):
@@ -85,6 +90,21 @@ def report(conn):
             continue
         payload = json.loads(r['payload'])
         versions.add(r['model_version'])
+        pick = payload.get('pick') or {}
+        label = payload.get('confidence_label')
+        hit = outcome(pick.get('market'), hg, ag)
+        probability = pick.get('p')
+        if (hit is not None and label in ('Yüksek', 'Orta', 'Düşük')
+                and isinstance(probability, (int, float)) and not isinstance(probability, bool)
+                and math.isfinite(probability) and 0 <= probability <= 1):
+            # Sürüm ve politika karışmasın: eski tahmin yeni kuralla yeniden seçilmez.
+            key = (r['league'], label, r['model_version'], pick.get('policy', 'legacy'))
+            group = recommendation_groups.setdefault(key, {'n': 0, 'won': 0, 'probability_sum': 0.0})
+            group['n'] += 1
+            group['won'] += int(hit)
+            group['probability_sum'] += probability
+        elif 'confidence_label' not in payload:
+            legacy += 1
         actual = 0 if hg > ag else 1 if hg == ag else 2
         # Aynı maç örnekleminde üç varyantın karşılaştırması.
         if all(payload[variant].get(k) is not None for variant in samples for k in ('1', 'X', '2')):
@@ -101,4 +121,21 @@ def report(conn):
     return {'scope': 'first_published_prematch', 'versions': sorted(versions),
             'variants': {v: {'metrics': metrics(s), 'calibration': calibration(s)} for v, s in samples.items()},
             'markets': {k: {'n': v['n'], 'brier': round(v['brier_sum'] / v['n'], 4)} for k, v in market_scores.items()},
+            'recommendations': {'groups': recommendation_rows(recommendation_groups), 'legacy_without_confidence': legacy},
             'stored': conn.execute('SELECT COUNT(*) n FROM prediction_snapshots').fetchone()['n']}
+
+
+def recommendation_rows(groups):
+    """Gözlenen isabet ve %95 Wilson aralığı; az örneklem açıkça görünür."""
+    rows = []
+    for (league, label, version, policy), group in sorted(groups.items()):
+        n, won = group['n'], group['won']
+        rate, z = won / n, 1.96
+        scale = 1 + z*z/n
+        center = (rate + z*z/(2*n))/scale
+        radius = z * math.sqrt(rate*(1-rate)/n + z*z/(4*n*n))/scale
+        rows.append({'league': league, 'confidence_label': label, 'version': version, 'policy': policy,
+                     'n': n, 'won': won, 'hit_rate': round(rate, 4),
+                     'predicted_probability': round(group['probability_sum']/n, 4),
+                     'interval95': [round(max(0, center-radius), 4), round(min(1, center+radius), 4)]})
+    return rows

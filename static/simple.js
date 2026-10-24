@@ -8,6 +8,23 @@
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
   const LEVELS = { "Yüksek": 3, "Orta": 2, "Düşük": 1 };
 
+  function confidenceLevel(match) {
+    return Math.max(0, Math.min(3, Number(info(match).level) || 0));
+  }
+  function sortMatches(matches) {
+    const score = (m) => typeof m.confidence === "number" && Number.isFinite(m.confidence) ? m.confidence : -1;
+    return [...matches].sort((a, b) => confidenceLevel(b) - confidenceLevel(a)
+      || score(b) - score(a) || Date.parse(a.kickoff) - Date.parse(b.kickoff)
+      || String(a.id).localeCompare(String(b.id)));
+  }
+
+  function filterMatches(matches, filters = {}, live = new Map(), now = Date.now()) {
+    const day = (value) => new Date(value).toLocaleDateString("sv-SE", {timeZone: "Europe/Istanbul"});
+    return matches.filter((m) => (!filters.high || confidenceLevel(m) === 3)
+      && (!filters.today || day(m.kickoff) === day(now))
+      && (!filters.live || live.get(String(m.id))?.state === "in"));
+  }
+
   function headline(market) {
     if (["1", "X", "2", "1X", "X2", "12"].includes(market)) return "MS " + market;
     const m = /^([ÜA])(\d+(?:\.\d+)?)$/.exec(market || "");
@@ -62,5 +79,5 @@
     </div>${s.reason ? `<p class="pick-why">${esc(s.reason)}</p>` : ""}`;
   }
 
-  return { headline, title, info, levelBadge, oddsBox, pickBlock };
+  return { headline, title, info, levelBadge, oddsBox, pickBlock, confidenceLevel, sortMatches, filterMatches };
 });

@@ -129,3 +129,43 @@ test("refreshSelection: taze veriyle oran/olasılık güncellenir, uymayan veri 
   assert.deepEqual([next.p, next.iddaaOdds, next.claudeOdds], [0.55, 2.1, 1.7]);
   assert.equal(C.refreshSelection(old, { id: "1", markets: {} }), old);
 });
+
+test('finished coupon pick retains score through storage, missing live feed and odds refresh', () => {
+  const final = C.withResult(pick(A,'1'),{id:'1',state:'post',home_goals:2,away_goals:1,updated_at:'2026-10-24T18:00Z'});
+  const restored=C.sanitize(JSON.parse(JSON.stringify({items:[final],stake:100}))).items[0];
+  const missingFeed=C.withResult(restored,undefined);
+  const staleFeed=C.withResult(missingFeed,{id:'1',state:'in',home_goals:1,away_goals:1});
+  const refreshed=C.refreshSelection(staleFeed,A);
+  assert.deepEqual(C.resultView(refreshed,Date.now()),{label:'Bitti',score:'2–1',result:'Tuttu',completed:true});
+  const totals=C.summarize([refreshed],100,Date.now());
+  assert.equal(totals.startedCount,0);
+  assert.equal(totals.finishedCount,1);
+});
+
+test('0–0 draw is a final score and invalid result cannot fabricate a finish', () => {
+  const final=C.withResult(pick(A,'X'),{state:'post',home_goals:0,away_goals:0});
+  assert.equal(C.resultView(final,Date.now()).result,'Tuttu');
+  assert.equal(C.resultView(C.withResult(pick(A,'1'),{state:'post',home_goals:null,away_goals:0}),Date.now()).completed,false);
+  assert.equal(C.withResult(final,{id:'other',state:'post',home_goals:3,away_goals:0}),final);
+});
+
+test('elapsed kickoff without a verified result is pending, not an invented finished score', () => {
+  const sel={...pick(A,'1'),kickoff:'2020-01-01T00:00Z'};
+  assert.equal(C.resultView(sel,Date.now()).label,'Sonuç bekleniyor');
+  assert.equal(C.resultView(sel,Date.now()).score,'');
+});
+
+test('coupon overall outcome settles on verified finals and counts remaining distinct matches', () => {
+  const a=pick(A,'1'), b=pick(B,'2');
+  const final=(item,h,a)=>C.withResult(item,{state:'post',home_goals:h,away_goals:a});
+  let s=C.summarize([final(a,2,0),b],100,Date.now());
+  assert.deepEqual([s.status,s.wonCount,s.lostCount,s.pendingCount,s.remainingMatches],['pending',1,0,1,1]);
+  s=C.summarize([final(a,2,0),final(b,0,1)],100,Date.now());
+  assert.deepEqual([s.status,s.totalProbability,s.remainingMatches],['won',1,0]);
+  s=C.summarize([final(a,0,1),b],100,Date.now());
+  assert.deepEqual([s.status,s.lostCount,s.totalProbability,s.remainingMatches],['lost',1,0,1]);
+  s=C.summarize([a,pick(A,'1X'),b],100,Date.now());
+  assert.equal(s.pendingCount,3);
+  assert.equal(s.remainingMatches,2);
+  assert.equal(C.summarize([],100,Date.now()).status,'empty');
+});

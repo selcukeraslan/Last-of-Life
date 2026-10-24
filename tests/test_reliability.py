@@ -151,6 +151,38 @@ class DatabaseCase(unittest.TestCase):
             snapshots.record(c,[pred])
             self.assertEqual(c.execute('SELECT COUNT(*) n FROM prediction_snapshots').fetchone()['n'],1)
 
+    def test_confidence_report_uses_recorded_pick_and_separates_versions(self):
+        start = datetime.now(timezone.utc)+timedelta(hours=1)
+        with db.session() as c:
+            for mid, league, label, market, probability, hg, ag in (
+                ('won', 'eng.1', 'Yüksek', 'A3.5', .9, 1, 0),
+                ('lost', 'eng.1', 'Yüksek', '1', .8, 0, 1),
+                ('other', 'tur.1', 'Orta', 'X', .6, 0, 0),
+            ):
+                c.execute('INSERT INTO matches(id,league,kickoff,home,away,completed,home_goals,away_goals) VALUES(?,?,?,?,?,1,?,?)',
+                          (mid,league,start.isoformat(),'A','B',hg,ag))
+                pred = {'id':mid, 'league':league, 'kickoff':start.isoformat(),
+                        'markets':{'1':{'p':.5}, 'X':{'p':.3}, '2':{'p':.2}},
+                        'pick':{'market':market,'p':probability,'policy':'hit_rate_v1'},
+                        'confidence_label':label, 'confidence':.8}
+                snapshots.record(c,[pred])
+                pred['pick']={'market':'2','p':.99}  # Sonraki öneri ilk kaydı değiştiremez.
+                snapshots.record(c,[pred])
+            rows = snapshots.report(c)['recommendations']['groups']
+            high = next(r for r in rows if r['league']=='eng.1')
+            self.assertEqual((high['n'],high['won'],high['hit_rate']), (2,1,.5))
+            self.assertAlmostEqual(high['predicted_probability'],.85)
+            self.assertLess(high['interval95'][0], .5)
+            self.assertGreater(high['interval95'][1], .5)
+            c.execute("UPDATE prediction_snapshots SET model_version='other-version' WHERE match_id='lost'")
+            self.assertEqual(len(snapshots.report(c)['recommendations']['groups']),3)
+            c.execute("UPDATE prediction_snapshots SET payload=? WHERE match_id='other'",
+                      (json.dumps({'model':{}, 'blend':{}, 'market':{}}),))
+            self.assertEqual(snapshots.report(c)['recommendations']['legacy_without_confidence'],1)
+            # Başlangıç sonrasında alınmış tahmin ölçüme giremez.
+            c.execute('UPDATE prediction_snapshots SET captured_at=?', ((start+timedelta(minutes=1)).isoformat(),))
+            self.assertEqual(snapshots.report(c)['recommendations']['groups'],[])
+
     def test_schema_versions_unique(self):
         files = list((Path(__file__).resolve().parent.parent/'supabase/migrations').glob('*.sql'))
         self.assertEqual(len(files),len({p.name.split('_',1)[0] for p in files}))

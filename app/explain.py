@@ -146,9 +146,14 @@ def summarize(item: dict) -> dict:
     pick = item.get("pick")
     if not pick:
         return {"market": None, "headline": "Net öneri yok", "title": "Bu maçta güçlü bir seçenek göremedik",
-                "odds": None, "level": 1, "level_label": "Düşük", "reason": ""}
+                "odds": None, "level": 0, "level_label": "", "reason": ""}
     market = pick["market"]
     label = item.get("confidence_label") or "Düşük"
+    explanation = reason(item)
+    if pick.get("policy") == "hit_rate_v1":
+        explanation += " Seçim, mevcut pazarlar içinde en yüksek tahmini tutma ihtimaline göre yapılır; düşük oran kabul edilir."
+    if pick.get("odds_source") == "model":
+        explanation += " Gerçek oran bulunamadı; bu yalnızca model önerisidir."
     return {"market": market, "headline": headline(market), "title": title(market, item["home"], item["away"]),
             "odds": (item.get("iddaa_odds") or {}).get(market), "level": LEVELS.get(label, 1),
-            "level_label": label, "reason": reason(item)}
+            "level_label": label, "reason": explanation}

@@ -121,7 +121,7 @@ class BlendPredictionTest(unittest.TestCase):
         self.assertGreater(out["markets"]["1"]["p"], pred["markets"]["1"]["p"])
         self.assertEqual(out["confidence"], P.confidence(out["pick"]["p"], 20)["confidence"])  # önerinin olasılığından
         self.assertEqual(out["confidence_label"], P.confidence_label(out["confidence"]))
-        self.assertEqual(out["pick"]["p"], P.best_pick(out["markets"])["p"])
+        self.assertEqual(out["pick"]["p"], P.best_pick(out["markets"], actual_odds=odds)["p"])
         self.assertEqual(pred["markets"]["1"]["p"], 0.40)  # girdi değişmez
 
     def test_blend_predictions_attaches_odds_from_db(self):

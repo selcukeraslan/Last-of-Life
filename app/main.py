@@ -23,6 +23,7 @@ from .model.ratings import parse_ts
 from .model.small_leagues import market_favorite
 from .value_bets import router as value_bets_router
 from .seo import router as seo_router
+from .results_api import router as results_router
 
 AUTO_UPDATE_HOURS = 6
 UPDATE_PER_MINUTE = 5
@@ -49,6 +50,7 @@ app.include_router(match_insights_router)
 app.include_router(coupon_history_router)
 app.include_router(model_report_router)
 app.include_router(value_bets_router)
+app.include_router(results_router)
 
 
 def _check_league(league: str):

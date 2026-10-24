@@ -106,20 +106,28 @@ def confidence(p: float | None, n_min: float, news_teams: int | None = None) -> 
     return {"confidence": level, "confidence_label": label, "confidence_reason": reason + news_note}
 
 
-# Öneri üretirken bakılan pazarlar ve kısa açıklamaları
-# (A3.5 / Ü1.5 gibi neredeyse her maçta tutan, düşük bilgili pazarlar bilerek yok)
-PICK_MARKETS = ["1", "X", "2", "1X", "X2", "Ü2.5", "A2.5", "KG Var", "KG Yok"]
+# İsabet önceliği: tam maç skoru ile sonuçlandırılabilen standart pazarlar.
+PICK_MARKETS = ["1", "X", "2", "1X", "X2", "12", "Ü1.5", "A1.5", "Ü2.5", "A2.5", "Ü3.5", "A3.5", "KG Var", "KG Yok"]
+PICK_POLICY = "hit_rate_v1"
 
 
-def best_pick(mk: dict, min_odds: float = 1.40) -> dict | None:
-    """En olası ama anlamlı orana sahip pazarı seç (çok düşük oranlı 'bedava' tahminleri ele)."""
-    best = None
+def best_pick(mk: dict, min_odds: float = 1.01, actual_odds: dict | None = None) -> dict | None:
+    """Mevcut seçeneklerde en yüksek tahmini tutma olasılığı; oran getiri hedefi değildir.
+
+    Gerçek oran sağlanmışsa yalnız o listede geçerli oranı olan pazar seçilir.
+    Oran yoksa model önerisi açıkça ayrı kaynak olarak işaretlenir.
+    """
+    candidates = []
     for key in PICK_MARKETS:
-        o = mk[key]
-        if o["suggested"] is None or o["suggested"] < min_odds:
+        item = mk.get(key, {})
+        probability = item.get("p")
+        quote = actual_odds.get(key) if actual_odds is not None else item.get("suggested")
+        if (isinstance(probability, bool) or not isinstance(probability, (int, float))
+                or not math.isfinite(probability) or not 0 < probability <= 1
+                or isinstance(quote, bool) or not isinstance(quote, (int, float))
+                or not math.isfinite(quote) or quote <= 1 or quote < min_odds):
             continue
-        if best is None or o["p"] > best[1]["p"]:
-            best = (key, o)
-    if not best:
-        return None
-    return {"market": best[0], **best[1]}
+        candidates.append({"market": key, **item, "odds": quote,
+                           "odds_source": "iddaa" if actual_odds is not None else "model",
+                           "policy": PICK_POLICY})
+    return max(candidates, key=lambda item: item["p"], default=None)
