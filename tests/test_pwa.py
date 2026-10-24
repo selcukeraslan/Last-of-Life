@@ -1,4 +1,3 @@
-import asyncio
 import json
 import os
 import shutil
@@ -9,28 +8,21 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
+from fastapi.testclient import TestClient
+
 from app import pwa
 from app.config import STATIC_DIR
 from app.main import app
 
 
 def asgi_get(path: str):
-    """Uvicorn'suz GET: (status, {küçük harf başlık: değer}, gövde) döner; lifespan (DB) tetiklenmez."""
-    sent, scope = [], {"type": "http", "asgi": {"version": "3.0"}, "http_version": "1.1", "method": "GET",
-                       "scheme": "https", "path": path, "raw_path": path.encode(), "query_string": b"",
-                       "headers": [(b"host", b"iddia-oran.vercel.app")], "server": ("iddia-oran.vercel.app", 443),
-                       "client": ("127.0.0.1", 1)}
-
-    async def receive():
-        return {"type": "http.request", "body": b"", "more_body": False}
-
-    async def send(msg):
-        sent.append(msg)
-
-    asyncio.run(app(scope, receive, send))
-    start = next(m for m in sent if m["type"] == "http.response.start")
-    headers = {k.decode().lower(): v.decode() for k, v in start["headers"]}
-    return start["status"], headers, b"".join(m.get("body", b"") for m in sent if m["type"] == "http.response.body")
+    """Lifespan başlatmadan gerçek ASGI istemcisiyle GET; üretim DB/güncellemesi çalışmaz."""
+    client = TestClient(app, base_url="https://iddia-oran.vercel.app")
+    try:
+        response = client.get(path)
+        return response.status_code, dict(response.headers), response.content
+    finally:
+        client.close()
 
 
 def png_size(data: bytes):

@@ -20,17 +20,23 @@
 - Yeni senaryolar: tüm kaynakların çökmesi, kısmi güncelleme, başarısız kaynağın son başarı zamanını koruma,
   boş kaynak yanıtı, resume checkpoint'i, desteklenmeyen otomatik pazarlar, ortak kupon kaydı,
   ortak sonuçlandırma ve PWA gizlilik/çevrimdışı davranışı.
-- CI hedefi Python 3.12 ve Node 22; uzak doğrulama aşağıdaki hesap engeli nedeniyle bekliyor.
+- CI hedefi Python 3.12 ve Node 22. İlk deneme aşağıdaki hesap engeline takıldı; public geçişinden sonra test yeniden başlatıldı.
 - Üretim DB'sine veri yazılmadı; gerçek Telegram veya e-posta gönderilmedi.
 
-## Hesap sahibinin çözmesi gereken engel
+## Ücretsiz GitHub Actions çalışması
 
 GitHub check-run annotation'ı, işin son hesap ödemeleri başarısız olduğu veya harcama limitinin artırılması
 gerektiği için başlamadığını bildiriyor. İncelenen iş: [hızlı güncelleme](https://github.com/selcukeraslan/Last-of-Life/actions/runs/39562776941).
 
-GitHub **Settings → Billing & plans** kontrol edilmeli. Bu bir workflow kod hatası değil; hesap engeli
-giderildikten sonra Tests, hızlı güncelleme ve tam güncelleme doğrulanmalı. Telegram işi gerçek paylaşım
-yaptığından tekrar çalıştırılması kanal davranışı dikkate alınarak yapılmalı.
+Kullanıcının açık onayıyla repo 24 Ekim 2026'da **public** yapıldı. Standart GitHub-hosted runner'lar
+public repolarda ücretsiz olduğundan bu işler için özel repo dakika kotasına bağlı kalınmaz.
+Ödeme yöntemi veya harcama limiti değiştirilmedi. Bu, Supabase/Vercel gibi diğer servislerin ayrı kotalarını değiştirmez.
+
+Geçiş öncesinde tüm uzak dallar, Git geçmişi, issue/PR içerikleri ve yorumlar incelendi.
+Gitleaks 8.30.1 Git geçmişi ve yorum taramalarında gizli anahtar bulmadı; ek bağlantı şifresi/dosya taraması da temizdi.
+Bu kontroller, tüm olası hassas içeriğin bulunacağını garanti etmez.
+
+Yalnız Tests işi yeniden çalıştırıldı. Veri güncelleme ve gerçek Telegram paylaşımı elle tetiklenmedi.
 
 ## Kalan işler
 
