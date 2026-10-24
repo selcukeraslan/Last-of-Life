@@ -155,21 +155,28 @@ async function renderMatches() {
   const league = state.league;
   const incoming = await api(`/api/upcoming?${query}`);
   if (state.league !== league) return;
-  state.matchList = Simple.sortMatches(incoming);
+  // Eski service worker/static cache simple.js dosyasını yeni app.js ile karıştırabilir.
+  // Bu durumda maç listesini temel sıralamayla göster; sayfa hiç çökmemeli.
+  state.matchList = typeof Simple.sortMatches === "function" ? Simple.sortMatches(incoming) : incoming;
   drawMatchList();
   renderTable();
 }
 
 function drawMatchList() {
   const el = $("#matches"), all = state.matchList || [];
-  const list = Simple.filterMatches(all, matchFilters, state.live);
+  const list = typeof Simple.filterMatches === "function"
+    ? Simple.filterMatches(all, matchFilters, state.live)
+    : all.filter((m) => (!matchFilters.high || m.confidence_label === "Yüksek")
+      && (!matchFilters.today || new Date(m.kickoff).toLocaleDateString("sv-SE", {timeZone:"Europe/Istanbul"}) === new Date().toLocaleDateString("sv-SE", {timeZone:"Europe/Istanbul"}))
+      && (!matchFilters.live || state.live.get(String(m.id))?.state === "in"));
   const filters = `<div class="fav-bar match-filters" aria-label="Maç filtreleri">${[["high", "Yüksek güven"], ["today", "Bugün"], ["live", "Canlı"]].map(([key, label]) => `<button type="button" class="chip${matchFilters[key] ? " active" : ""}" data-match-filter="${key}" aria-pressed="${matchFilters[key]}">${label}</button>`).join("")}</div>`;
 
   const selectedLeague = [...state.leagues, ...(state.smallLeagues || [])].find((l) => l.id === state.league);
   const leagueTitle = selectedLeague ? `${selectedLeague.country ? esc(selectedLeague.country) + " · " : ""}${esc(selectedLeague.name)}` : "";
   let html = "", lastLevel = null;
   for (const m of list) {
-    const level = Simple.confidenceLevel(m);
+    const level = typeof Simple.confidenceLevel === "function" ? Simple.confidenceLevel(m)
+      : ({"Yüksek":3,"Orta":2,"Düşük":1}[m.confidence_label] || 0);
     if (level !== lastLevel) {
       html += `<div class="day-head">${["Net öneri yok / sınırlı veri", "Düşük güven", "Orta güven", "Yüksek güven"][level]}</div>`;
       lastLevel = level;
