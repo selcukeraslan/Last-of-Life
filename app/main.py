@@ -148,7 +148,11 @@ def _small_prediction(event: dict) -> dict:
         with session() as conn:
             constraints = load_constraints(conn)
         event = {**event, 'iddaa_min_matches':constraints.get(str(event.get('iddaa_event_id',event['id'])), {})}
-    return bulletin_event(event)
+    if 'odds_current' not in event:
+        event={**event,'odds_current':parse_ts(event['kickoff'])>datetime.now(timezone.utc)}
+    result=bulletin_event(event)
+    result['summary']=explain.summarize(result)
+    return result
 
 
 @app.get("/api/match/{match_id}")
@@ -170,6 +174,25 @@ def match(match_id: str, competition_id: Annotated[int | None, Query(ge=1)] = No
             result = _small_prediction(event)
             result["league_name"] = f"{small['country']} · {small['league_name']}"
             return result
+    with session() as conn:
+        if match_id.startswith('iddaa:'):
+            from . import bulletin_archive
+            archived=bulletin_archive.find_event(conn,event_id)
+            if archived:
+                if competition_id is not None and archived.get('competition_id') != competition_id:
+                    raise HTTPException(404,'Maç bulunamadı')
+                if archived.get('match_id'):
+                    archived_fixture=conn.execute('SELECT * FROM matches WHERE id=?',(archived['match_id'],)).fetchone()
+                    if archived_fixture and archived_fixture['league'] in LEAGUES:
+                        from .bulletin_api import fixture_view
+                        return {**fixture_view(dict(archived_fixture),archived),'id':match_id}
+                return _small_prediction({**archived,'id':match_id,'iddaa_event_id':event_id,
+                                          'iddaa_odds':archived.get('odds',{}),'small_league':True,
+                                          'odds_current':False,'is_archived':True})
+        fixture=conn.execute('SELECT * FROM matches WHERE id=?',(match_id,)).fetchone()
+    if fixture and fixture['league'] in LEAGUES and (fixture['completed'] or parse_ts(fixture['kickoff'])<=datetime.now(timezone.utc)):
+        from .bulletin_api import fixture_view
+        return fixture_view(dict(fixture))
     for lg in LEAGUES:
         m = next((x for x in engine.get_model(lg).upcoming if x["id"] == match_id), None)
         if m:

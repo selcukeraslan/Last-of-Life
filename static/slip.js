@@ -8,8 +8,8 @@
     // Eski HTML ile yeni betik karışırsa sürümlü URL yeni uygulama kabuğunu getirir.
     window.Slip={button:()=>"",render:async()=>{},updateLive:()=>{}};
     const url=new URL(window.location.href);
-    if(url.searchParams.get("app_version") !== "bulletin-v3") {
-      url.searchParams.set("app_version","bulletin-v3");window.location.replace(url.href);
+    if(url.searchParams.get("app_version") !== "bulletin-v4") {
+      url.searchParams.set("app_version","bulletin-v4");window.location.replace(url.href);
     }
     return;
   }

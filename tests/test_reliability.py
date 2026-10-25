@@ -116,8 +116,8 @@ class DatabaseCase(unittest.TestCase):
             for mid, kickoff, odds in [('past', begin-timedelta(hours=1), [1.3, 6, 9]),
                                        ('next', begin+timedelta(days=1), [1.3, 6, 9]),
                                        ('missing', begin+timedelta(hours=1), [1.3]),
-                                       ('good1', begin+timedelta(hours=2), [1.3, 6, 9]),
-                                       ('good2', begin+timedelta(hours=3), [1.3, 6, 9])]:
+                                       ('good1', begin+timedelta(hours=2), [1.6, 4.2, 5]),
+                                       ('good2', begin+timedelta(hours=3), [1.6, 4.2, 5])]:
                 c.execute('INSERT INTO iddaa_events(id,league,competition_id,kickoff,home,away,is_small,updated_at) VALUES(?,?,?,?,?,?,1,?)',
                           (mid,'small:test:league',1,kickoff.isoformat(),'A','B',begin.isoformat()))
                 for market, odd in zip(('1','X','2'), odds):

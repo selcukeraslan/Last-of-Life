@@ -46,3 +46,9 @@ test('double chance and signed handicaps use source-compatible labels',()=>{
  assert.equal(Simple.headline('Handikap -1 1'),'HMS 0:1 1');
  assert.equal(Simple.headline('Handikap 2 X'),'HMS 2:0 0');
 });
+
+test('result-only summaries show the result label once and have no recommendation badge',()=>{
+ const html=Simple.pickBlock({summary:{market:null,headline:'Bitti',title:'Ev 2–1 Dep',recommendation_label:'Bitti',level:0}});
+ assert.equal((html.match(/Bitti/g)||[]).length,1);
+ assert.doesNotMatch(html,/Net öneri yok/);
+});

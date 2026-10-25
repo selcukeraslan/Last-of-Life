@@ -46,7 +46,7 @@ def bulletin_event(event: dict) -> dict:
             markets[key] = _market(probability)
 
     event_id = str(event.get("iddaa_event_id") or event.get("event_id") or event.get("id", ""))
-    return {
+    result = {
         **event,
         "id": str(event.get("id", event_id)),
         "event_id": event_id,
@@ -57,7 +57,7 @@ def bulletin_event(event: dict) -> dict:
         "lambda_away": None,
         "pick": None,
         "confidence": None,
-        "confidence_label": "Düşük",
+        "confidence_label": "Model güveni yok",
         "data_quality": None,
         "data_availability": {
             "market_odds": bool(odds),
@@ -71,6 +71,19 @@ def bulletin_event(event: dict) -> dict:
         "blend": {"applied": bool(available_groups), "weight": 1 if available_groups else 0,
                   "groups": available_groups},
     }
+
+    if event.get('odds_current') is False:
+        return result
+    from .predict import candidate
+    selection = candidate(markets, odds)
+    if selection:
+        selection.update(candidate_type='market_candidate', probability_source='iddaa_market',
+                         policy='market_candidate_v1', model_available=False)
+        # Bu aday piyasa olasılığıdır; model için kullanılan p>=%56 güven filtresi uygulanmaz.
+        if 1.40 <= selection['odds'] <= 2.30:
+            selection['candidate_status']='market_candidate'
+        result['pick']=selection
+    return result
 
 
 def market_favorite(prediction: dict) -> dict | None:

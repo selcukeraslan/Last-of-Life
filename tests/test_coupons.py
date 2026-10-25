@@ -172,7 +172,7 @@ class SmallLeagueCouponTest(unittest.TestCase):
             entries = cp._day_entries(now.astimezone(cp.TZ).date())
         self.assertEqual([p["id"] for p, _ in entries], [10])
 
-    def test_small_coupon_has_two_to_four_low_confidence_selections(self):
+    def test_small_coupon_has_two_to_four_market_candidates_without_model_confidence(self):
         entries = []
         for i in range(1, 6):
             p = pred(i, {"1": (0.66, 1.5), "1X": (0.82, 1.2)}, league=f"small:country:league")
@@ -183,7 +183,7 @@ class SmallLeagueCouponTest(unittest.TestCase):
         with patch.object(cp, "LEAGUES", {}):
             picks = select_small_league(entries)
         self.assertEqual(len(picks), 4)
-        self.assertTrue(all(p["small_league"] and p["confidence"] == "Düşük" for p in picks))
+        self.assertTrue(all(p["small_league"] and p["confidence"] is None for p in picks))
 
 
 

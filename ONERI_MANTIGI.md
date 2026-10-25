@@ -1,6 +1,6 @@
 # Günlük bülten, oranlar ve öneri mantığı
 
-Ana ekran Türkiye gününe göre bütün ana ligleri tek bültende gösterir: Süper Lig, Premier League, La Liga, Bundesliga, Serie A ve diğer ana ligler. Gün seçimi bugün/yarın/ertesi gün veya takvimle yapılır. Ana lig filtresi korunur. Diğer ligler tek günlük bülten olarak açılır; tek tek lig seçilmez. Model eşleşmesi olmayan iddaa etkinlikleri de gerçek oranlarıyla görünür, model verisi varmış gibi sunulmaz.
+Ana ekran Türkiye gününe göre bütün ligleri tek bültende gösterir. Önce ana ligler sıralanır: Süper Lig, Premier League, La Liga, Bundesliga, Serie A ve diğer ana ligler; devamında diğer liglerin maçları gelir. Gün seçimi bugün/yarın/ertesi gün veya takvimle yapılır. Ana lig filtresi korunur. Diğer ligler tek günlük bülten olarak açılır; tek tek lig seçilmez. Model eşleşmesi olmayan iddaa etkinlikleri de gerçek oranlarıyla görünür, model verisi varmış gibi sunulmaz.
 
 ## Gerçek oranlar
 
@@ -35,3 +35,12 @@ Kaynakta negatif handikap 0:|çizgi| olarak gösterilir (deplasman avantajı); h
 ## Gerçek başarı ölçümü
 
 İlk yayımlanan maç öncesi öneri, olasılık, güven etiketi, model sürümü ve yöntem değişmez kaydedilir. Lig/güven/sürüm/yöntem bazında tutan/toplam ve ortalama tahmini olasılık gösterilir. Eski kayıtlara sonradan güven etiketi atanmaz. Maç başladıktan sonra kaydedilen tahmin ölçüme girmez. Yaklaşık %95 Wilson aralığı az örneklemde belirsizliği gösterir; maçlar arası bağımlılık bu yaklaşık aralıkta modellenmez. [NIST yöntemi](https://www.itl.nist.gov/div898/handbook/prc/section2/prc241.htm).
+
+
+## Tarih kapsamı ve aday gösterimi
+
+Günlük görünüm yalnız aktif İddaa listesinden kurulmaz: kayıtlı ana lig fikstürleri ve tamamlanmış maç sonuçları da katılır. Geçmiş maçlara sonradan yeni tahmin üretilmez. Gelecek fikstürün oranı henüz yoksa model ön tahmini ayrı etiketle gösterilir ve kupona eklenmez. Gün/bülten türü değişiminde yüksek güven ve canlı filtreleri sıfırlanır.
+
+Güncel bülten değiştirilmeden önce kaynak adları/kimlikleri ve fiyatları 30 günlük arşive alınır. Arşiv fiyatları güncel bahis fiyatı olarak kullanılamaz. Bu arşiv başlamadan önce kaybolmuş küçük lig metadata kayıtları geriye dönük uydurulmaz; o gün için arşiv yoksa açıkça belirtilir. Ana liglerin mevcut sonuç/odds_log kayıtları gösterilebilir.
+
+Modelin %56 eşiğini veya 1,40–2,30 bandını karşılamayan maçlarında gerçek fiyatlı en olası alternatif aday gösterilir; güçlü öneriyle eşdeğer etiketlenmez. Takım modeli olmayan liglerde tam/geçerli oran gruplarından marjı temizlenmiş piyasa adayı hesaplanır. Bu olasılık model güveni değildir. Eksik gruptan olasılık uydurulmaz.

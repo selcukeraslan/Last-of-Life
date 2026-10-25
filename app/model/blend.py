@@ -93,6 +93,8 @@ def blend_prediction(pred: dict, iddaa_odds: dict, weight: float | None = None) 
     out = {**pred, "markets": markets, "blend": {"applied": bool(groups), "weight": w, "groups": groups}}
     if "pick" in pred:
         out["pick"] = P.best_pick(markets, actual_odds=iddaa_odds)
+        out["alternative"] = None if out['pick'] else P.candidate(markets,iddaa_odds) if iddaa_odds else P.model_preview(markets)
+        out['recommendation_status'] = 'recommended' if out['pick'] else (out['alternative'] or {}).get('candidate_status','missing_data')
     if "data_quality" in pred:
         pick = out.get("pick")
         n_min = pred.get("data_n", pred["data_quality"] * 15)

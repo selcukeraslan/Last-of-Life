@@ -145,17 +145,41 @@ def reason(item: dict) -> str:
 
 
 def summarize(item: dict) -> dict:
-    pick = item.get("pick")
-    if not pick:
-        return {"market": None, "headline": "Net öneri yok", "title": "Uygun oran ve güven koşullarında öneri yok",
-                "odds": None, "level": 0, "level_label": "", "reason": ""}
-    market = pick["market"]
-    label = item.get("confidence_label") or "Düşük"
-    explanation = reason(item)
-    if pick.get("policy") == "balanced_v2":
-        explanation += " Seçim, 1,40–2,30 gerçek oran bandındaki seçeneklerden tahmini tutma ihtimali en yüksek olana göre yapılır."
-    if pick.get("odds_source") == "model":
-        explanation += " Gerçek oran bulunamadı; bu yalnızca model önerisidir."
-    return {"market": market, "headline": headline(market), "title": title(market, item["home"], item["away"]),
-            "odds": (item.get("iddaa_odds") or {}).get(market), "level": LEVELS.get(label, 1),
-            "level_label": label, "reason": explanation}
+    def summary(market, text, reason_text='', label='', level=0, odd=None):
+        return {'market':market,'headline':headline(market) if market else label,
+                'title':text,'reason':reason_text,'odds':odd,'level':level,
+                'level_label':{'Piyasa adayı':'Piyasa verisi','Model ön tahmini':'Oran bekleniyor','Aday seçenek':'Eşik altında','Oran bandı dışı':'Bant dışı'}.get(label,label),'recommendation_label':label}
+    if item.get('result_only'):
+        h,a=item.get('home_goals'),item.get('away_goals')
+        if item.get('completed') and h is not None and a is not None:
+            return summary(None,f"{item['home']} {h}–{a} {item['away']}",label='Bitti')
+        return summary(None,'Başlama saati geçti; sonuç henüz doğrulanmadı.',label='Sonuç bekleniyor')
+    if item.get('is_archived'):
+        return summary(None,'Son kaydedilen bülten oranları; güncel bahis fiyatı değildir.',label='Arşiv kaydı')
+    pick=item.get('pick')
+    alternative=item.get('alternative')
+    selected=pick or alternative
+    if not selected:
+        return summary(None,'Seçim hesabı için yeterli oran veya model verisi bulunmuyor.',label='Veri bekleniyor')
+    market=selected['market'];probability=selected.get('p')
+    chance=f"Tahmini olasılık %{probability*100:.0f}. " if probability is not None else ''
+    odd=selected.get('odds')
+    if item.get('small_league'):
+        status=selected.get('candidate_status')
+        note='1,40–2,30 bandı dışında; ' if status=='outside_band' else ''
+        return summary(market,title(market),f"{note}Marjı temizlenmiş iddaa piyasa olasılığı %{probability*100:.0f}; takım modeli güveni değildir.",
+                       label='Piyasa adayı',odd=odd)
+    if alternative:
+        status=alternative.get('candidate_status')
+        if status=='odds_missing':
+            return summary(market,title(market),chance+'İddaa oranı henüz yok. Bu model ön tahminidir; güncel oran gelene kadar kupona eklenmez.',label='Model ön tahmini')
+        if status=='below_threshold':
+            return summary(market,title(market),chance+'Güçlü öneri için aranan %56 olasılık eşiğinin altında; yalnız aday olarak gösteriliyor.',label='Aday seçenek',odd=odd)
+        return summary(market,title(market),chance+'1,40–2,30 oran bandı dışında; yalnız alternatif olarak gösteriliyor.',label='Oran bandı dışı',odd=odd)
+    label=item.get('confidence_label') or 'Düşük'
+    explanation=reason(item)
+    if pick.get('policy')=='balanced_v2':
+        explanation+=' Seçim, 1,40–2,30 gerçek oran bandındaki seçeneklerden tahmini tutma ihtimali en yüksek olana göre yapılır.'
+    return {'market':market,'headline':headline(market),'title':title(market,item['home'],item['away']),
+            'odds':(item.get('iddaa_odds') or {}).get(market),'level':LEVELS.get(label,1),
+            'level_label':label,'reason':explanation,'recommendation_label':'Model önerisi'}
