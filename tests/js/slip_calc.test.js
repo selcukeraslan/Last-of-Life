@@ -169,3 +169,49 @@ test('coupon overall outcome settles on verified finals and counts remaining dis
   assert.equal(s.remainingMatches,2);
   assert.equal(C.summarize([],100,Date.now()).status,'empty');
 });
+
+test('experimental picks require real quotes, persist and never settle a first-half bet from full score', () => {
+  const m={...A,extra_markets:{'İY 1':{p:.65,suggested:1.5},'Handikap -1 2':{p:.6,suggested:1.6}},iddaa_odds:{'İY 1':1.7,'Handikap -1 2':1.8}};
+  const half=C.fromMatch(m,'İY 1');
+  assert.ok(half);
+  assert.equal(C.fromMatch({...m,iddaa_odds:{}},'İY 1'),null);
+  const final=C.withResult(half,{state:'post',home_goals:2,away_goals:0});
+  assert.equal(C.selectionOutcome(final),null);
+  assert.equal(C.summarize([final],10,Date.now()).status,'pending');
+  assert.equal(C.resultView(final,Date.now()).result,'Sonuç doğrulanmalı');
+  const confirmed=C.sanitize({items:[{...final,manualStatus:'won'}]}).items[0];
+  assert.equal(C.summarize([confirmed],10,Date.now()).status,'won');
+  const handicap=C.withResult(C.fromMatch(m,'Handikap -1 2'),{state:'post',home_goals:1,away_goals:1});
+  assert.equal(C.selectionOutcome(handicap),true); // signed SOV -1 gives away a 0:1 advantage
+  assert.equal(C.conflicts(['İY 1','2']),false);
+});
+
+test('quoted corner/card markets can be added without inventing a probability or a final outcome',()=>{
+  const m={...A,extra_markets:{'Korner A9.5':{p:null,suggested:null}},iddaa_odds:{'Korner A9.5':1.85}};
+  const pick=C.fromMatch(m,'Korner A9.5');
+  assert.ok(pick);
+  const s=C.summarize([pick],100,Date.now());
+  assert.equal(s.totalOdds,1.85);
+  assert.equal(s.totalProbability,null);
+  assert.equal(s.expectedValue,null);
+  const final=C.withResult(pick,{state:'post',home_goals:3,away_goals:1});
+  assert.equal(C.summarize([final],100,Date.now()).status,'pending');
+});
+
+test('minimum match count comes from the source market and counts distinct matches',()=>{
+ const m={...A,iddaa_min_matches:{'1':3}};
+ const item=C.fromMatch(m,'1');
+ assert.equal(item.minMatches,3);
+ const stored=C.sanitize({items:[item]}).items[0];
+ assert.equal(stored.minMatches,3);
+ const s=C.summarize([stored,pick(A,'1X')],100,Date.now());
+ assert.equal(s.uniqueMatches,1);
+ assert.equal(s.minMatches,3);
+});
+
+test('a removed real quote is retained as unavailable rather than replaced by a simulated price',()=>{
+ const old=pick(A,'1'),updated=C.refreshSelection(old,{...A,iddaa_odds:{}});
+ assert.equal(updated.iddaaOdds,2);
+ assert.equal(updated.quoteUnavailable,true);
+ assert.equal(C.effectiveOdds(updated).source,'iddaa');
+});

@@ -106,11 +106,11 @@ class BlendMarketsTest(unittest.TestCase):
 
 
 class BlendPredictionTest(unittest.TestCase):
-    def test_no_odds_leaves_prediction_untouched(self):
+    def test_no_odds_keeps_probabilities_but_does_not_offer_a_fake_quote(self):
         pred = prediction()
         out = blend.blend_prediction(pred, {}, 0.5)
         self.assertEqual(out["markets"], pred["markets"])
-        self.assertEqual((out["pick"], out["confidence"]), (pred["pick"], pred["confidence"]))
+        self.assertEqual((out["pick"], out["confidence"]), (None, 0))
         self.assertFalse(out["blend"]["applied"])
 
     def test_pick_and_confidence_recomputed(self):

@@ -139,7 +139,7 @@ def install(app):
     @app.middleware("http")
     async def _cdn_cache(request: Request, call_next):
         response = await call_next(request)
-        if request.url.path in {"/api/leagues", "/api/update/status", "/api/results"}:
+        if request.url.path in {"/api/leagues", "/api/update/status", "/api/results", "/api/bulletin"}:
             response.headers["Cache-Control"] = "no-store"
             response.headers["CDN-Cache-Control"] = "no-store"
             response.headers["Vercel-CDN-Cache-Control"] = "no-store"

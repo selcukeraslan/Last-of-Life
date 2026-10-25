@@ -24,6 +24,7 @@ from .model.small_leagues import market_favorite
 from .value_bets import router as value_bets_router
 from .seo import router as seo_router
 from .results_api import router as results_router
+from .bulletin_api import router as bulletin_router
 
 AUTO_UPDATE_HOURS = 6
 UPDATE_PER_MINUTE = 5
@@ -51,6 +52,7 @@ app.include_router(coupon_history_router)
 app.include_router(model_report_router)
 app.include_router(value_bets_router)
 app.include_router(results_router)
+app.include_router(bulletin_router)
 
 
 def _check_league(league: str):
@@ -141,19 +143,26 @@ def _upcoming(league: str, days: int):
 def _small_prediction(event: dict) -> dict:
     """Return actual small-league bulletin data and only market-derived probabilities."""
     from .model.small_leagues import bulletin_event
+    from .scrapers.iddaa import load_constraints
+    if 'iddaa_min_matches' not in event:
+        with session() as conn:
+            constraints = load_constraints(conn)
+        event = {**event, 'iddaa_min_matches':constraints.get(str(event.get('iddaa_event_id',event['id'])), {})}
     return bulletin_event(event)
 
 
 @app.get("/api/match/{match_id}")
 def match(match_id: str, competition_id: Annotated[int | None, Query(ge=1)] = None):
     with session() as conn:
-        small = conn.execute("SELECT * FROM iddaa_events WHERE id=? AND is_small=1", (match_id,)).fetchone()
+        event_id = match_id.removeprefix("iddaa:")
+        small = conn.execute("SELECT * FROM iddaa_events WHERE id=? AND (is_small=1 OR ?=1)",
+                             (event_id, int(match_id.startswith("iddaa:")))).fetchone()
         if small:
             if competition_id is not None and small["competition_id"] != competition_id:
                 raise HTTPException(404, "Maç bulunamadı")
             odds = {r["market"]: r["odd"] for r in conn.execute(
-                "SELECT market, odd FROM iddaa_odds WHERE event_id=?", (match_id,)).fetchall()}
-            event = {"id": small["id"], "event_id": small["id"], "iddaa_event_id": small["id"],
+                "SELECT market, odd FROM iddaa_odds WHERE event_id=?", (small["id"],)).fetchall()}
+            event = {"id": "iddaa:"+small["id"] if match_id.startswith("iddaa:") else small["id"], "event_id": small["id"], "iddaa_event_id": small["id"],
                 "competition_id": small["competition_id"], "iddaa_updated_at": small["updated_at"],
                 "league": small["league"], "league_name": small["league_name"],
                 "country": small["country"], "kickoff": small["kickoff"], "home": small["home"],

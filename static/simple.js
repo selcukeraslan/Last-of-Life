@@ -26,7 +26,10 @@
   }
 
   function headline(market) {
-    if (["1", "X", "2", "1X", "X2", "12"].includes(market)) return "MS " + market;
+    if (["1X", "X2", "12"].includes(market)) return {"1X":"ÇŞ 1–0","X2":"ÇŞ 0–2","12":"ÇŞ 1–2"}[market];
+    if (["1", "X", "2"].includes(market)) return "MS " + (market === "X" ? "0" : market);
+    const handicap=/^Handikap (-?\d+(?:\.\d+)?) ([1X2])$/.exec(market || "");
+    if(handicap) {const n=Number(handicap[1]);return `HMS ${n < 0 ? "0:"+Math.abs(n) : n+":0"} ${handicap[2] === "X" ? "0" : handicap[2]}`;}
     const m = /^([ÜA])(\d+(?:\.\d+)?)$/.exec(market || "");
     if (m) return `${m[2]} ${m[1] === "Ü" ? "Üst" : "Alt"}`;
     return market || "";
@@ -49,7 +52,7 @@
   function info(m) {
     if (m.summary) return m.summary;
     const pick = m.pick;
-    if (!pick) return { market: null, headline: "Net öneri yok", title: "Bu maçta güçlü bir seçenek göremedik", odds: null, level: 0, level_label: "", reason: "" };
+    if (!pick) return { market: null, headline: "Net öneri yok", title: m.small_league ? "Model verisi sınırlı; gerçek bülten oranları gösteriliyor" : "Oran bandında uygun öneri yok", odds: null, level: 0, level_label: "", reason: "" };
     const small = !!m.small_league;
     return {
       market: pick.market, headline: headline(pick.market), title: title(pick.market),

@@ -6,8 +6,10 @@ _FALLBACK = "Modelin hesabına göre bu seçenek bu maç için en tutarlı gör�
 
 
 def headline(market: str) -> str:
-    if market in ("1", "X", "2", "1X", "X2", "12"):
-        return f"MS {market}"
+    if market in ("1X", "X2", "12"):
+        return {"1X": "ÇŞ 1–0", "X2": "ÇŞ 0–2", "12": "ÇŞ 1–2"}[market]
+    if market in ("1", "X", "2"):
+        return "MS " + ("0" if market == "X" else market)
     if market[:1] in ("Ü", "A") and market[1:2].isdigit():
         return f"{market[1:]} {'Üst' if market[0] == 'Ü' else 'Alt'}"
     return market
@@ -145,13 +147,13 @@ def reason(item: dict) -> str:
 def summarize(item: dict) -> dict:
     pick = item.get("pick")
     if not pick:
-        return {"market": None, "headline": "Net öneri yok", "title": "Bu maçta güçlü bir seçenek göremedik",
+        return {"market": None, "headline": "Net öneri yok", "title": "Uygun oran ve güven koşullarında öneri yok",
                 "odds": None, "level": 0, "level_label": "", "reason": ""}
     market = pick["market"]
     label = item.get("confidence_label") or "Düşük"
     explanation = reason(item)
-    if pick.get("policy") == "hit_rate_v1":
-        explanation += " Seçim, mevcut pazarlar içinde en yüksek tahmini tutma ihtimaline göre yapılır; düşük oran kabul edilir."
+    if pick.get("policy") == "balanced_v2":
+        explanation += " Seçim, 1,40–2,30 gerçek oran bandındaki seçeneklerden tahmini tutma ihtimali en yüksek olana göre yapılır."
     if pick.get("odds_source") == "model":
         explanation += " Gerçek oran bulunamadı; bu yalnızca model önerisidir."
     return {"market": market, "headline": headline(market), "title": title(market, item["home"], item["away"]),

@@ -60,7 +60,7 @@ def _load(conn, league: str):
 
 def news_scores(conn, league: str, at: datetime) -> dict:
     """Takım başına kural tabanlı haber etkisi (log-λ): att = kendi gol beklentisi, opp = rakibe giden etki.
-    Haber yoksa değerler 0'dır; model yine tahmin üretir, yalnız güven sınırlanır."""
+    Haber yoksa değerler 0'dır; eksik haber akışı güveni tek başına düşürmez."""
     since = (at - timedelta(days=NEWS_LOOKBACK_DAYS)).isoformat()
     rows = conn.execute(
         "SELECT team, title, link, source, published FROM news "

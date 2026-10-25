@@ -92,7 +92,7 @@ def blend_prediction(pred: dict, iddaa_odds: dict, weight: float | None = None) 
     markets, groups = blend_markets(pred["markets"], iddaa_odds, w)
     out = {**pred, "markets": markets, "blend": {"applied": bool(groups), "weight": w, "groups": groups}}
     if "pick" in pred:
-        out["pick"] = P.best_pick(markets, actual_odds=iddaa_odds or None)
+        out["pick"] = P.best_pick(markets, actual_odds=iddaa_odds)
     if "data_quality" in pred:
         pick = out.get("pick")
         n_min = pred.get("data_n", pred["data_quality"] * 15)
@@ -112,6 +112,9 @@ def blend_predictions(conn, items: list[dict]) -> list[dict]:
         odds = source["odds"] if source else {}
         blended = blend_prediction(item, odds) if "markets" in item else dict(item)
         blended["iddaa_odds"] = odds
+        blended["iddaa_min_matches"] = source.get("min_matches", {}) if source else {}
+        if blended.get("pick"):
+            blended["pick"]["min_matches"] = blended["iddaa_min_matches"].get(blended["pick"]["market"], 1)
         if "lambda_home" in blended and "lambda_away" in blended:
             blended["extra_markets"] = extra_markets.for_match(
                 blended["lambda_home"], blended["lambda_away"], odds)

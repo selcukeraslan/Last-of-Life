@@ -55,9 +55,9 @@ def for_match(lambda_home: float, lambda_away: float, iddaa_odds: dict | None = 
                     full_result = _result(hi + hj, ai + aj)
                     result[f"İY/MS {half_result}/{full_result}"] += probability
                     for line in handis:
-                        # iddaa handicap is applied to the away team: -1 means
-                        # the away side starts one goal behind.
-                        handicap_result = _result(hi + hj, ai + aj + float(line))
+                        # Source SOV < 0 is displayed 0:abs(SOV) (away advantage).
+                        # Equivalently add signed SOV to the home score.
+                        handicap_result = _result(hi + hj + float(line), ai + aj)
                         result[f"Handikap {line} {handicap_result}"] += probability
 
     out = {key: _out(probability) for key, probability in result.items()}

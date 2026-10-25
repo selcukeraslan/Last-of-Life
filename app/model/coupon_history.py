@@ -87,6 +87,10 @@ def daily_coupons(target, build=build_coupons) -> dict:
     """Web ve Telegram aynı (gün, tür) kaydını yayımlar; alternatifler canlı kalır."""
     from ..db import session
     built = build(target)
+    # Güncel seçimler ayrı sunulur; daha önce yayımlanmış kayıt geçmişte değişmez.
+    for kind in KINDS:
+        built[f'current_{kind}'] = {**built.get(kind, {}), 'publication':'live'}
+        built[f'current_{kind}_alternatives'] = [{**c, 'publication':'live'} for c in built.get(f'{kind}_alternatives', [])]
     with session() as conn:
         if target == _now().astimezone(TZ).date():
             freeze(conn, built)
