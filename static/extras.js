@@ -144,6 +144,7 @@ window.Extras = (() => {
     let box = el.querySelector("#slipSystem");
     if (!box) { box = document.createElement("div"); box.id = "slipSystem"; el.appendChild(box); }
     const rows = summary.rows.filter((r) => r.odds);
+    if(rows.some((r)=>r.p === null)) {box.innerHTML='<p class="muted">Olasılığı bilinmeyen seçim var; sistem tutma olasılığı hesaplanmadı.</p>';return;}
     box.innerHTML = `<details class="detail"${sysOpen ? " open" : ""}><summary>Sistem kuponu (isteğe bağlı)</summary><div class="detail-body">${systemHtml(rows, stake)}</div></details>`;
     box.querySelector("details").addEventListener("toggle", (e) => { sysOpen = e.target.open; });
     box._ctx = { rows, stake };

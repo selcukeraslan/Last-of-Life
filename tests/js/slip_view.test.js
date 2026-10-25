@@ -31,3 +31,15 @@ test('Kuponum renders the final score and does not erase it when today live feed
   assert.match(node.innerHTML,/2–1/);
   assert.equal(JSON.parse(storage).items[0].result.state,'post');
 });
+
+test('an old cached calculator triggers a single versioned reload instead of crashing the new slip',()=>{
+ let redirected='';
+ const window={SlipCalc:{MARKETS:[]},location:{href:'https://example.test/',replace:(url)=>{redirected=url;}}};
+ const context=vm.createContext({window,URL});
+ vm.runInContext(fs.readFileSync('static/slip.js','utf8'),context);
+ assert.match(redirected,/app_version=bulletin-v3/);
+ assert.equal(window.Slip.button({},'1'),'');
+ window.location.href=redirected;redirected='';
+ vm.runInContext(fs.readFileSync('static/slip.js','utf8'),context);
+ assert.equal(redirected,'');
+});

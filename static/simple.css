@@ -136,3 +136,16 @@ table { max-width: 100%; }
 .seg button { flex: 1 1 0; padding: 0 8px; font-size: 13px; }
 
 .match-filters { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.bulletin-days { display:flex; flex-wrap:wrap; align-items:center; gap:8px; margin:12px 0; }
+.bulletin-days label { display:flex; align-items:center; gap:6px; }
+.bulletin-days input { max-width:160px; }
+.bulletin-league { margin-bottom:24px; }
+.bulletin-league > h3 { position:sticky; top:0; background:var(--bg); z-index:1; padding:12px 4px; }
+.bulletin-prices { display:flex; flex-wrap:wrap; gap:12px; align-items:center; margin:12px 0; font-size:13px; }
+.bulletin-prices span { background:var(--panel2); border-radius:6px; padding:6px 10px; }
+.bulletin-prices small { color:var(--muted); }
+
+.main-league-group { display:flex; flex-wrap:wrap; gap:8px; align-items:center; }
+.league-select { display:flex; align-items:center; gap:6px; color:var(--muted); font-size:13px; }
+.league-select select { max-width:200px; }

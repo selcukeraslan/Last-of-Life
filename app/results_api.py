@@ -16,6 +16,14 @@ def results(ids: Annotated[list[str], Query(min_length=1, max_length=30)]):
     with session() as conn:
         rows = {r["id"]: dict(r) for r in conn.execute(
             f"SELECT id,kickoff,completed,home_goals,away_goals,status,updated_at FROM matches WHERE id IN ({marks})", ids)}
+        aliases = [mid.removeprefix('iddaa:') for mid in ids if mid.startswith('iddaa:')]
+        if aliases:
+            placeholders = ','.join('?' for _ in aliases)
+            for row in conn.execute(
+                'SELECT e.id AS event_id,m.kickoff,m.completed,m.home_goals,m.away_goals,m.status,m.updated_at '
+                'FROM iddaa_events e JOIN matches m ON m.id=e.match_id WHERE e.id IN ('+placeholders+')', aliases):
+                mid='iddaa:'+row['event_id']
+                rows[mid]={**dict(row),'id':mid}
     now = datetime.now(timezone.utc)
     out = {}
     for mid in ids:

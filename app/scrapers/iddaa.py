@@ -6,6 +6,8 @@ tek yerde çevrilir. Site sözleşmesi değişirse uygulamanın geri kalanı etk
 """
 import gzip
 import json
+import math
+from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
 import re
 import time
 import unicodedata
@@ -16,7 +18,7 @@ from difflib import SequenceMatcher
 from .. import odds_log
 from ..config import USER_AGENT
 from .. import odds_history
-from ..db import set_meta
+from ..db import set_meta, get_meta
 
 EVENTS_URL = "https://sportsbookv2.iddaa.com/sportsbook/events?st=1&type=0&version=0"
 COMPETITIONS_URL = "https://sportsbookv2.iddaa.com/sportsbook/competitions"
@@ -290,14 +292,14 @@ def _market_odds(markets: list[dict]) -> dict[str, float]:
             continue
         for outcome in outcomes:
             market_name = mapped.get(outcome.get("no"))
-            odd = outcome.get("odd")
-            if market_name and isinstance(odd, (int, float)) and odd > 1:
+            odd = outcome.get("odd")  # iddaa web arayüzü odd gösterir; wodd üzeri çizili eski orandır.
+            if market_name and not isinstance(odd, bool) and isinstance(odd, (int, float)) and math.isfinite(odd) and odd > 1:
                 odds[market_name] = round(float(odd), 2)
     return odds
 
 
 def parse_event(raw: dict) -> dict | None:
-    if not raw.get("d") or not raw.get("hn") or not raw.get("an"):
+    if raw.get("sid", 1) != 1 or not raw.get("d") or not raw.get("hn") or not raw.get("an"):
         return None  # takım adı olmayan kayıtlar maç değil (turnuva/şampiyon bahsi)
     try:
         competition_id = int(raw.get("ci"))
@@ -305,6 +307,14 @@ def parse_event(raw: dict) -> dict | None:
         return None
     country, league_name = event_labels(raw)
     league = COMPETITION_IDS.get(competition_id) or small_league_key(country, league_name)
+    constraints = {}
+    for market in raw.get('m') or []:
+        try:
+            minimum = max(1, min(30, int(market.get('mbc', raw.get('mbc', 1)))))
+        except (TypeError, ValueError):
+            minimum = 1
+        for name in _market_odds([market]):
+            constraints[name] = minimum
     return {
         "id": str(raw["i"]),
         "league": league,
@@ -315,6 +325,7 @@ def parse_event(raw: dict) -> dict | None:
         "home": raw.get("hn") or "",
         "away": raw.get("an") or "",
         "odds": _market_odds(raw.get("m") or []),
+        "min_matches": constraints,
     }
 
 
@@ -334,21 +345,63 @@ def match_event(event: dict, fixtures: list[dict]) -> tuple[dict | None, float]:
             continue
         fixture_time = datetime.fromisoformat(fixture["kickoff"].replace("Z", "+00:00"))
         hours = abs((fixture_time - kickoff).total_seconds()) / 3600
-        if hours > 18:
+        if hours > 6:
             continue
         home_score = team_similarity(event["home"], fixture["home"])
         away_score = team_similarity(event["away"], fixture["away"])
-        if min(home_score, away_score) < 0.58 or (home_score + away_score) / 2 < 0.72:
+        if min(home_score, away_score) < 0.72 or (home_score + away_score) / 2 < 0.84:
             continue
-        score = 0.45 * home_score + 0.45 * away_score + 0.10 * (1 - hours / 18)
+        score = 0.45 * home_score + 0.45 * away_score + 0.10 * (1 - hours / 6)
         if score > best_score:
             best, best_score = fixture, score
     return best, round(best_score, 3)
 
 
+def enrich_events(raw_events: list[dict], budget_seconds: float = 20) -> dict:
+    """Özet bültende olmayan pazarları tam maç detayından al; DB yalnız ana iş parçacığında yazılır."""
+    candidates = sorted(raw_events, key=lambda e: (e.get('ci') not in COMPETITION_IDS, e.get('d', 0)))
+    # Büyük bültenlerde hızlı güncelleme süresi sınırlı kalır; kapsam yanıt istatistiğinde görünür.
+    candidates = candidates[:400]
+    def fetch(event):
+        data = fetch_json(f"https://sportsbookv2.iddaa.com/sportsbook/event/{event['i']}", timeout=6, retries=1)['data']
+        if str(data.get('i')) != str(event['i']) or not isinstance(data.get('m'), list):
+            raise ValueError('Maç detay kimliği uyuşmuyor')
+        return data
+    pool = ThreadPoolExecutor(max_workers=6)
+    jobs = {pool.submit(fetch, e): e for e in candidates}
+    loaded = failed = 0
+    try:
+        for job in as_completed(jobs, timeout=budget_seconds):
+            event = jobs[job]
+            try:
+                detail = job.result()
+                markets = {m['i']: m for m in event.get('m', []) if 'i' in m}
+                for m in detail['m']:
+                    if 'i' not in m:
+                        continue
+                    previous = markets.get(m['i'])
+                    if previous is None or m.get('v', 0) >= previous.get('v', 0):
+                        markets[m['i']] = m
+                event['m'] = list(markets.values())
+                loaded += 1
+            except Exception:
+                failed += 1
+    except FuturesTimeout:
+        pass
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
+    return {'detail_requested': len(candidates), 'detail_loaded': loaded,
+            'detail_failed': failed, 'detail_skipped': len(raw_events)-loaded-failed}
+
+
 def sync_odds(conn, progress=None, retries: int = 3) -> dict:
     payload = fetch_json(retries=retries)
+    if payload.get('data', {}).get('isdiff'):
+        raise RuntimeError('Tam bülten yerine artımlı yanıt alındı; önceki oranlar korundu')
     raw_events = payload["data"].get("events", [])
+    if not isinstance(raw_events, list) or not raw_events:
+        raise RuntimeError('Boş/geçersiz bülten; önceki oranlar korundu')
+    detail_stats = enrich_events(raw_events)
     try:
         catalog = fetch_competitions()
     except Exception:
@@ -359,6 +412,8 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
             raw.setdefault("competitionName", competition.get("n") or competition.get("sn"))
             raw.setdefault("countryName", competition.get("cid"))
     events = [parsed for raw in raw_events if (parsed := parse_event(raw))]
+    if not events:
+        raise RuntimeError('Bültenden geçerli futbol maçı ayrıştırılamadı; önceki oranlar korundu')
     fixtures = [dict(row) for row in conn.execute(
         "SELECT id, league, kickoff, home, away FROM matches WHERE completed=0"
     ).fetchall()]
@@ -410,7 +465,10 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
     stats = {"bulletin_events": len(raw_events), "supported_events": len(events),
              "small_league_events": sum(e["league"].startswith("small:") for e in events),
              "matched": matched, "odds": odds_count,
-             "rate": round(matched / len(events), 3) if events else None}
+             "rate": round(matched / max(1, sum(not e['league'].startswith('small:') for e in events)), 3),
+             "unmatched_main": sum(not e['league'].startswith('small:') for e in events)-matched,
+             "markets_received": sum(len(e.get('m', [])) for e in raw_events), **detail_stats}
+    set_meta(conn, "iddaa_market_constraints", json.dumps({e["id"]:e["min_matches"] for e in events}))
     set_meta(conn, "iddaa_last_update", now)
     set_meta(conn, "iddaa_last_error", "")
     set_meta(conn, "iddaa_stats", json.dumps(stats, ensure_ascii=False))
@@ -433,8 +491,17 @@ def odds_for_matches(conn, match_ids) -> dict[str, dict]:
             FROM iddaa_events e JOIN iddaa_odds o ON o.event_id=e.id
             WHERE e.match_id IN ({marks})""", match_ids).fetchall()
     out: dict[str, dict] = {}
+    constraints = load_constraints(conn)
     for row in rows:
         entry = out.setdefault(row["match_id"], {
-            "event_id": row["event_id"], "updated_at": row["updated_at"], "odds": {}})
+            "event_id": row["event_id"], "updated_at": row["updated_at"], "odds": {},
+            "min_matches": constraints.get(row['event_id'], {})})
         entry["odds"][row["market"]] = row["odd"]
     return out
+
+
+def load_constraints(conn):
+    try:
+        return json.loads(get_meta(conn, 'iddaa_market_constraints') or '{}')
+    except (TypeError, ValueError):
+        return {}

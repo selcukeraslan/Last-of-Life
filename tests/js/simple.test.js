@@ -39,3 +39,10 @@ test('quick filters combine confidence, Istanbul day and live state', () => {
   assert.deepEqual(Simple.filterMatches(rows,{live:true},live,now).map(m=>m.id),['a']);
   assert.equal(Simple.filterMatches(rows,{},live,now).length,3);
 });
+
+test('double chance and signed handicaps use source-compatible labels',()=>{
+ assert.equal(Simple.headline('12'),'ÇŞ 1–2');
+ assert.equal(Simple.headline('1X'),'ÇŞ 1–0');
+ assert.equal(Simple.headline('Handikap -1 1'),'HMS 0:1 1');
+ assert.equal(Simple.headline('Handikap 2 X'),'HMS 2:0 0');
+});

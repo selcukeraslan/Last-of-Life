@@ -28,6 +28,20 @@
     RULES["Ü" + line] = (h, a) => h + a > line;
     RULES["A" + line] = (h, a) => h + a < line;
   }
+  const isExperimental = (market) => /^(İY [1X2]|İY [AÜ](?:0|1|2|3)\.5|İY\/MS [1X2]\/[1X2]|Handikap -?\d+(?:\.\d+)? [1X2]|(?:Korner|Kart) [AÜ]\d+\.5)$/.test(market || "");
+  const isSupported = (market) => MARKETS.includes(market) || isExperimental(market);
+  function selectionOutcome(sel) {
+    const result=normalizeResult(sel.result);
+    if(result?.state !== "post") return null;
+    if(RULES[sel.market]) return RULES[sel.market](result.home_goals,result.away_goals);
+    const handicap=/^Handikap (-?\d+(?:\.\d+)?) ([1X2])$/.exec(sel.market);
+    if(handicap) {
+      const h=result.home_goals+Number(handicap[1]), a=result.away_goals;
+      return handicap[2] === (h>a ? "1" : h<a ? "2" : "X");
+    }
+    // Tam maç skoru ilk yarı/İY-MS seçimini sonuçlandırmak için yeterli değildir.
+    return sel.manualStatus === "won" ? true : sel.manualStatus === "lost" ? false : null;
+  }
   const MAX_GOALS = 5; // en yüksek çizgi 3.5; 0..5 gol her kombinasyonu denemeye yeter
 
   const round2 = (x) => Math.round(x * 100) / 100;
@@ -44,19 +58,21 @@
 
   function isValid(sel) {
     return !!sel && typeof sel === "object" && typeof sel.id === "string" && sel.id !== ""
-      && MARKETS.includes(sel.market) && typeof sel.home === "string" && typeof sel.away === "string"
-      && Number.isFinite(Date.parse(sel.kickoff)) && num(sel.p) !== null && sel.p > 0 && sel.p <= 1
-      && effectiveOdds(sel) !== null;
+      && isSupported(sel.market) && typeof sel.home === "string" && typeof sel.away === "string"
+      && Number.isFinite(Date.parse(sel.kickoff))
+      && ((num(sel.p) !== null && sel.p > 0 && sel.p <= 1) || (sel.p === null && num(sel.iddaaOdds) >= MIN_ODDS))
+      && effectiveOdds(sel) !== null && (!isExperimental(sel.market) || num(sel.iddaaOdds) >= MIN_ODDS);
   }
 
   /** /api/match ya da /api/upcoming yanıtındaki bir maç + pazardan kupon seçimi; olmuyorsa null. */
   function fromMatch(m, market, leagueName) {
-    const mk = m && m.markets && m.markets[market];
-    if (!mk || !MARKETS.includes(market)) return null;
+    const mk = m && (m.markets?.[market] || m.extra_markets?.[market]);
+    if (!mk || !isSupported(market)) return null;
     const sel = {
       id: String(m.id), market, leagueName: m.league_name || leagueName || "",
       home: m.home, away: m.away, kickoff: m.kickoff, p: num(mk.p),
       iddaaOdds: num((m.iddaa_odds || {})[market]), claudeOdds: num(mk.suggested),
+      minMatches: Math.max(1,Math.min(30,Number(m.iddaa_min_matches?.[market]) || 1)),
     };
     return isValid(sel) ? sel : null;
   }
@@ -64,7 +80,10 @@
   /** Saklı seçimi taze maç verisiyle günceller (olasılık + oranlar); veri uymuyorsa eskisini korur. */
   function refreshSelection(sel, m) {
     const fresh = fromMatch(m, sel.market, sel.leagueName);
-    return fresh ? { ...sel, ...fresh, result: sel.result } : sel;
+    if (m.iddaa_odds && sel.iddaaOdds >= MIN_ODDS && !(num(m.iddaa_odds[sel.market]) >= MIN_ODDS)) {
+      return {...sel, p:fresh?.p ?? sel.p, quoteUnavailable:true};
+    }
+    return fresh ? { ...sel, ...fresh, result: sel.result, manualStatus: sel.manualStatus, quoteUnavailable:false } : sel;
   }
 
   function normalizeResult(value) {
@@ -85,8 +104,10 @@
   }
   function resultView(sel, now) {
     const r = normalizeResult(sel.result);
-    if (r?.state === "post") return { label: "Bitti", score: `${r.home_goals}–${r.away_goals}`,
-      result: RULES[sel.market]?.(r.home_goals, r.away_goals) ? "Tuttu" : "Yattı", completed: true };
+    if (r?.state === "post") {
+      const outcome=selectionOutcome(sel);
+      return {label:"Bitti",score:`${r.home_goals}–${r.away_goals}`,result:outcome === null ? "Sonuç doğrulanmalı" : outcome ? "Tuttu" : "Yattı", completed:true};
+    }
     if (r?.state === "in") {
       const stale = !r.updated_at || now - Date.parse(r.updated_at) > 120000;
       return { label: stale ? "Son alınan skor" : "Canlı", score: `${r.home_goals}–${r.away_goals}`,
@@ -107,7 +128,10 @@
         id: sel.id, market: sel.market, leagueName: typeof sel.leagueName === "string" ? sel.leagueName : "",
         home: sel.home, away: sel.away, kickoff: sel.kickoff, p: sel.p,
         iddaaOdds: num(sel.iddaaOdds), claudeOdds: num(sel.claudeOdds),
+        minMatches: Math.max(1,Math.min(30,Number(sel.minMatches) || 1)),
         result: normalizeResult(sel.result),
+        manualStatus: ["won","lost"].includes(sel.manualStatus) ? sel.manualStatus : null,
+        quoteUnavailable: sel.quoteUnavailable === true,
       });
     }
     if ("stake" in raw) out.stake = raw.stake === null ? null : (num(raw.stake) !== null && raw.stake >= 0 ? raw.stake : DEFAULT_STAKE);
@@ -133,6 +157,7 @@
 
   /** Aynı maçtaki pazarlar hiçbir skorda birlikte tutamıyorsa (örn. 1 ve X, Ü2.5 ve A1.5) true. */
   function conflicts(markets) {
+    if(markets.some((market)=>!RULES[market])) return false; // Farklı periyotları tam skorla çelişkili sayma.
     for (let h = 0; h <= MAX_GOALS; h++)
       for (let a = 0; a <= MAX_GOALS; a++)
         if (markets.every((mk) => RULES[mk](h, a))) return false;
@@ -157,21 +182,21 @@
 
     const count = rows.length;
     const impossible = sameMatch.some((g) => g.impossible);
-    const naiveProbability = count ? rows.reduce((acc, r) => acc * r.p, 1) : 0;
+    const naiveProbability = !count ? 0 : rows.every((r)=>num(r.p) !== null) ? rows.reduce((acc,r)=>acc*r.p,1) : null;
     const totalOdds = count ? round2(rows.reduce((acc, r) => acc * (r.odds ?? 1), 1)) : 0;
-    const wonCount = rows.filter((r) => r.completed && RULES[r.market](r.result.home_goals, r.result.away_goals)).length;
-    const lostCount = rows.filter((r) => r.completed && !RULES[r.market](r.result.home_goals, r.result.away_goals)).length;
+    const wonCount = rows.filter((r) => selectionOutcome(r) === true).length;
+    const lostCount = rows.filter((r) => selectionOutcome(r) === false).length;
     const pendingCount = count - wonCount - lostCount;
     const remainingMatches = new Set(rows.filter((r) => !r.completed).map((r) => r.id)).size;
     const status = !count ? "empty" : lostCount || impossible ? "lost" : pendingCount ? "pending" : "won";
     // İlk tahmini, canlı skorla yeniden hesaplanmış olasılık gibi göstermeyelim.
     const totalProbability = status === "lost" ? 0 : status === "won" ? 1 : naiveProbability;
-    const ev = count ? totalProbability * totalOdds - 1 : null;
+    const ev = count && totalProbability !== null ? totalProbability * totalOdds - 1 : null;
     const iddaaCount = rows.filter((r) => r.source === "iddaa").length;
 
     const money = stake !== null && stake !== undefined && Number.isFinite(stake) && stake >= 0 && count > 0;
     return {
-      rows, count, sameMatch, impossible, iddaaCount, wonCount, lostCount, pendingCount, remainingMatches, status,
+      rows, count, sameMatch, impossible, iddaaCount, minMatches: Math.max(1,...rows.map((r)=>r.minMatches || 1)), uniqueMatches: byMatch.size, wonCount, lostCount, pendingCount, remainingMatches, status,
       claudeCount: rows.filter((r) => r.source === "claude").length,
       startedCount: rows.filter((r) => r.started).length,
       finishedCount: rows.filter((r) => r.completed).length,
@@ -180,12 +205,12 @@
       stake: money ? stake : null,
       payout: money ? round2(stake * totalOdds) : null,
       profit: money ? round2(stake * totalOdds - stake) : null,
-      expectedValue: money ? round2(stake * ev) : null, // yatırılan tutarın beklenen net getirisi (TL)
+      expectedValue: money && ev !== null ? round2(stake * ev) : null, // yatırılan tutarın beklenen net getirisi (TL)
     };
   }
 
   return {
-    MIN_ODDS, MAX_ITEMS, DEFAULT_STAKE, GROUPS, MARKETS,
+    MIN_ODDS, MAX_ITEMS, DEFAULT_STAKE, GROUPS, MARKETS, isSupported, isExperimental, selectionOutcome,
     keyOf, effectiveOdds, isValid, fromMatch, refreshSelection, sanitize, parseStake,
     addSelection, removeSelection, hasSelection, conflicts, summarize, normalizeResult, withResult, resultView,
   };

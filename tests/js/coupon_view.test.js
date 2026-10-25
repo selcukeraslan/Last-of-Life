@@ -41,9 +41,9 @@ test("coupon groups display multiple alternatives under their type", () => {
     banko_alternatives: [coupon("banko"), coupon("banko", { picks: [pick({ home: "İkinci" })] })],
     surprise_alternatives: [coupon("surprise")],
   }, "banko", "b-good");
-  assert.match(html, /Banko Kupon Alternatifleri/);
-  assert.match(html, /Banko Kuponu 1/);
-  assert.match(html, /Banko Kuponu 2/);
+  assert.match(html, /Dengeli \(Banko\) Kupon Alternatifleri/);
+  assert.match(html, /Dengeli \(Banko\) Kuponu 1/);
+  assert.match(html, /Dengeli \(Banko\) Kuponu 2/);
   assert.doesNotMatch(html, /Sürpriz Kuponu/);
 });
 
@@ -62,4 +62,14 @@ test("legacy single coupons and a missing response retain a safe rendering path"
   assert.equal(CouponView.alternatives({ banko_alternatives: [], banko: coupon("banko") }, "banko").length, 1);
   const group = CouponView.couponGroup(undefined, "surprise", "b-warn");
   assert.match(group, /Sürpriz türünde uygun kupon bulunamadı/);
+});
+
+test('current alternatives take precedence while previously published coupons remain separate',()=>{
+ const published=coupon('banko',{publication:'published'}),current=coupon('banko',{publication:'live'});
+ const data={date:'2099-01-01',banko:published,banko_alternatives:[published],current_banko_alternatives:[current]};
+ assert.deepEqual(CouponView.alternatives(data,'banko'),[current]);
+ data.current_banko_alternatives=[];
+ assert.deepEqual(CouponView.alternatives(data,'banko'),[]);
+ data.date='2020-01-01';
+ assert.deepEqual(CouponView.alternatives(data,'banko'),[published]);
 });

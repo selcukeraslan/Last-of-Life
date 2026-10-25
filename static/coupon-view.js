@@ -41,7 +41,7 @@
       <td class="l"><b>${esc(pick.home || "Takım bilgisi yok")}</b> – ${esc(pick.away || "Takım bilgisi yok")}</td>
       <td>${esc(pick.league_name || pick.league || "-")}</td>
       <td>${esc(pickTime(pick.kickoff))}</td>
-      <td><span class="badge b-info">${esc(pick.market || "-")}</span></td>
+      <td><span class="badge b-info">${esc({"1X":"ÇŞ 1–0","X2":"ÇŞ 0–2","12":"ÇŞ 1–2"}[pick.market] || pick.market || "-")}</span></td>
       <td>${odds(pick)}</td>
       <td>${probability(pick.p)}</td>
     </tr>`).join("");
@@ -62,6 +62,7 @@
 
   function alternatives(data, type) {
     if (!data || typeof data !== "object") return [];
+    if (Array.isArray(data[`current_${type}_alternatives`]) && (!data.date || data.date >= new Date().toLocaleDateString("sv-SE",{timeZone:"Europe/Istanbul"}))) return data[`current_${type}_alternatives`];
     const key = `${type}_alternatives`;
     const listed = Array.isArray(data[key])
       ? data[key].filter((coupon) => coupon && typeof coupon === "object" && Array.isArray(coupon.picks) && coupon.picks.length)
@@ -72,7 +73,7 @@
   }
 
   function couponGroup(data, type, badgeClass, date) {
-    const label = type === "surprise" ? "Sürpriz" : "Banko";
+    const label = type === "surprise" ? "Sürpriz" : "Dengeli (Banko)";
     const coupons = alternatives(data, type);
     const content = coupons.length
       ? coupons.map((coupon, index) => couponCard(coupon, `${label} Kuponu ${index + 1}`, badgeClass, { kind: type, index, date })).join("")

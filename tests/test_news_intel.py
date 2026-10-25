@@ -63,13 +63,13 @@ class MitigationTest(unittest.TestCase):
 
 
 class NewsConfidenceTest(unittest.TestCase):
-    def test_no_news_caps_at_low_with_reason(self):
+    def test_no_news_does_not_override_probability_and_history(self):
         c = confidence(0.8, 20, news_teams=0)
-        self.assertEqual(c["confidence_label"], "Düşük")
-        self.assertIn("haber yok", c["confidence_reason"])
+        self.assertEqual(c, confidence(0.8, 20, news_teams=2))
+        self.assertEqual(confidence(.8, 3, news_teams=0)["confidence_label"], "Düşük")
 
-    def test_one_team_news_caps_at_medium(self):
-        self.assertEqual(confidence(0.8, 20, news_teams=1)["confidence_label"], "Orta")
+    def test_one_team_news_does_not_cap_the_label(self):
+        self.assertEqual(confidence(0.8, 20, news_teams=1)["confidence_label"], "Yüksek")
 
     def test_both_teams_news_keeps_level(self):
         self.assertEqual(confidence(0.8, 20, news_teams=2)["confidence_label"], "Yüksek")

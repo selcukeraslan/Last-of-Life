@@ -11,7 +11,7 @@ const PRECACHE = __PRECACHE__;
 const API_MAX = 60;
 const IMG_MAX = 150;
 const NETWORK_TIMEOUT_MS = 8000; // kayıtlı yanıt varken ağı en fazla bu kadar bekle
-const NO_CACHE_API = /^\/api\/(?:update|auth|leagues|results)(\/|$)/;
+const NO_CACHE_API = /^\/api\/(?:update|auth|leagues|results|bulletin)(\/|$)/;
 
 async function clearApiCaches() {
   const keys = await caches.keys();

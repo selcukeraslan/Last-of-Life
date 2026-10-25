@@ -17,12 +17,12 @@ from app.model.coupons import (_choices, _coupon, select_banko, select_banko_alt
 
 def pred(mid, markets, kickoff="2026-10-17T14:00Z", league="eng.1"):
     return {"id": mid, "league": league, "kickoff": kickoff, "home": f"H{mid}", "away": f"A{mid}",
-            "markets": {m: {"p": p, "suggested": s, "fair": round(1 / p, 2)} for m, (p, s) in markets.items()}}
+            "data_n":20, "markets": {m: {"p": p, "suggested": s, "fair": round(1 / p, 2)} for m, (p, s) in markets.items()}}
 
 
 def entry(mid, markets, iddaa=None, **kw):
     p = pred(mid, markets, **kw)
-    return p, _choices(p, iddaa or {})
+    return p, _choices(p, iddaa if iddaa is not None else {m:s for m,(_,s) in markets.items()})
 
 
 class OddsSourceTest(unittest.TestCase):
@@ -44,79 +44,66 @@ class OddsSourceTest(unittest.TestCase):
 
 
 class BankoTest(unittest.TestCase):
-    def test_first_half_and_handicap_cannot_enter_automatic_coupon(self):
-        from app.model import extra_markets
-        from app.model.settlement import SUPPORTED_MARKETS
-        entries = []
-        for mid in (1, 2):
-            p = pred(mid, {"1X": (0.8, 1.20)})
-            p["extra_markets"] = extra_markets.for_match(1, 1, {"İY A1.5": 1.25, "Handikap 2 2": 1.20})
-            choices = _choices(p, {"İY A1.5": 1.25, "Handikap 2 2": 1.20})
-            self.assertTrue(all(c["market"] in SUPPORTED_MARKETS for c in choices))
-            entries.append((p, choices))
-        self.assertEqual([p["market"] for p in select_banko(entries)], ["1X", "1X"])
+    def test_mid_price_high_confidence_and_one_pick_per_match(self):
+        entries=[entry(1,{"1X":(.94,1.05),"1":(.72,1.70)}),entry(2,{"2":(.70,1.65)}),entry(3,{"1":(.65,1.8)})]
+        picks=select_banko(entries)
+        self.assertEqual(len(picks),2)
+        self.assertEqual([p['id'] for p in picks],[1,2])
+        self.assertTrue(all(1.4<=p['odds']<=2.3 and p['odds_source']=='iddaa' for p in picks))
+        self.assertNotIn('1X',[p['market'] for p in picks])
 
-    def test_one_pick_per_match_and_rules(self):
-        entries = [entry(1, {"1": (0.80, 1.30), "Ü1.5": (0.78, 1.30)}),
-                   entry(2, {"1X": (0.90, 1.18)}),
-                   entry(3, {"2": (0.76, 1.40)}),
-                   entry(4, {"1": (0.70, 1.50)})]  # p < %75
-        picks = select_banko(entries)
-        self.assertEqual([x["id"] for x in picks], [2, 1, 3])
-        self.assertEqual(len({x["id"] for x in picks}), len(picks))
-        self.assertGreaterEqual(math.prod(x["p"] for x in picks), 0.5)
+    def test_sparse_data_and_fake_odds_are_not_banko_candidates(self):
+        entries=[entry(i,{'1':(.8,1.6)}) for i in (1,2)]
+        entries[0][0]['data_n']=3
+        self.assertEqual(select_banko(entries),[])
+        entries=[entry(i,{'1':(.8,1.6)},iddaa={}) for i in (1,2)]
+        self.assertEqual(select_banko(entries),[])
 
-    def test_total_probability_floor_drops_third_pick(self):
-        picks = select_banko([entry(i, {"1": (0.76, 1.40)}) for i in (1, 2, 3)])  # .76^3 = .44
-        self.assertEqual(len(picks), 2)
+    def test_two_matches_are_preferred_to_needless_extra_risk(self):
+        picks=select_banko([entry(i,{'1':(.7,1.6)}) for i in (1,2,3)])
+        self.assertEqual(len(picks),2)
+        self.assertAlmostEqual(math.prod(p['p'] for p in picks),.49)
 
-    def test_single_match_is_not_a_coupon(self):
-        self.assertEqual(select_banko([entry(1, {"1": (0.9, 1.20)})]), [])
+    def test_source_minimum_match_count_is_enforced(self):
+        entries=[entry(i,{'1':(.72,1.6)}) for i in (1,2,3)]
+        for _,choices in entries:
+            for choice in choices: choice['min_matches']=3
+        self.assertEqual(select_banko(entries[:2]),[])
+        self.assertEqual(len(select_banko(entries)),3)
 
-    def test_min_odds_uses_iddaa_odds_when_available(self):
-        # Claude oranı 1.20 yeterli ama iddaa 1.08 -> seçim dışı; iki maç kalmazsa kupon yok.
-        entries = [entry(1, {"1": (0.8, 1.30)}, {"1": 1.08}), entry(2, {"1": (0.8, 1.30)})]
-        self.assertEqual(select_banko(entries), [])
+    def test_low_price_and_longshots_do_not_force_a_coupon(self):
+        for odds in (1.08,3.5):
+            self.assertEqual(select_banko([entry(i,{'1':(.8,odds)}) for i in (1,2)]),[])
+        self.assertEqual(select_banko([]),[])
+        self.assertEqual(select_banko([entry(1,{'1':(.8,1.6)})]),[])
 
-    def test_empty_day(self):
-        self.assertEqual(select_banko([]), [])
+    def test_experimental_markets_remain_manual_candidates(self):
+        p,choices=entry(1,{'İY 1':(.8,1.6)})
+        self.assertEqual(choices,[])
 
 
 class SurpriseTest(unittest.TestCase):
-    def test_total_odds_floor_unique_matches_and_size(self):
-        entries = [entry(i, {"X": (0.30, 3.0), "2": (0.28, 3.4), "Ü2.5": (0.45, 2.2)}) for i in range(1, 8)]
-        picks = select_surprise(entries)
-        self.assertTrue(3 <= len(picks) <= 5)
-        self.assertEqual(len({x["id"] for x in picks}), len(picks))
-        self.assertGreaterEqual(math.prod(x["odds"] for x in picks), 15)
+    def test_bounded_odds_probability_and_unique_matches(self):
+        picks=select_surprise([entry(i,{'1':(.5,2.2),'X':(.2,9)}) for i in range(1,6)])
+        self.assertEqual(len(picks),3)
+        self.assertEqual(len({p['id'] for p in picks}),3)
+        self.assertTrue(8<=math.prod(p['odds'] for p in picks)<=25)
+        self.assertTrue(all(p['market']=='1' for p in picks))
 
-    def test_never_returns_coupon_below_15(self):
-        entries = [entry(i, {"X": (0.4, 1.7)}) for i in range(1, 6)]  # 1.7^5 = 14.2
-        self.assertEqual(select_surprise(entries), [])
+    def test_lottery_odds_and_synthetic_quotes_are_excluded(self):
+        self.assertEqual(select_surprise([entry(i,{'X':(.15,9)}) for i in range(1,6)]),[])
+        self.assertEqual(select_surprise([entry(i,{'1':(.5,2.2)},iddaa={}) for i in range(1,6)]),[])
 
-    def test_fewer_than_three_matches(self):
-        self.assertEqual(select_surprise([entry(i, {"X": (0.3, 3.0)}) for i in (1, 2)]), [])
-
-    def test_ev_uses_iddaa_odds(self):
-        entries = [entry(1, {"X": (0.30, 3.3)}, {"X": 4.0})] + [entry(i, {"X": (0.30, 3.3)}) for i in (2, 3, 4)]
-        by_id = {x["id"]: x for x in select_surprise(entries)}
-        self.assertEqual(by_id[1]["odds_source"], "iddaa")
-        self.assertAlmostEqual(by_id[1]["value"], 0.30 * 4.0 - 1, places=4)
-        self.assertTrue(all(x["odds_source"] == "claude" for i, x in by_id.items() if i != 1))
-
-    def test_prefers_likelier_combo_not_lottery_odds(self):
-        entries = [entry(i, {"2": (0.50, 3.6)}) for i in range(1, 9)]  # 3 maç = 46.7 oran; 5 maç gereksiz
-        picks = select_surprise(entries)
-        self.assertEqual(len(picks), 3)
-
-    def test_probability_band_and_markets(self):
-        entries = [entry(i, {"1": (0.40, 2.6), "X": (0.10, 9.0), "2": (0.65, 1.6)}) for i in range(1, 6)]
-        self.assertEqual(select_surprise(entries), [])  # "1" izinli değil, X p<0.20, 2 p>0.62
+    def test_alternate_market_can_reach_target_without_adding_a_match(self):
+        picks=select_surprise([entry(i,{'1':(.65,1.9),'Ü2.5':(.6,2.3)}) for i in range(1,4)])
+        self.assertEqual(len(picks),3)
+        self.assertTrue(8<=math.prod(p['odds'] for p in picks)<=25)
+        self.assertTrue(any(p['market']=='Ü2.5' for p in picks))
 
 
 class CouponAlternativesTest(unittest.TestCase):
     def test_banko_alternatives_are_unique_and_span_main_leagues(self):
-        entries = [entry(i, {"1": (0.82 - i * 0.01, 1.35)}, league=league)
+        entries = [entry(i, {"1": (0.82 - i * 0.01, 1.65)}, league=league)
                    for i, league in enumerate(("eng.1", "tur.1", "esp.1", "ger.1"), 1)]
         small = entry(9, {"1": (0.95, 1.5)}, league="small:country:league")
         small[0]["small_league"] = True
@@ -127,13 +114,13 @@ class CouponAlternativesTest(unittest.TestCase):
         for index, signature in enumerate(signatures):
             for other in signatures[index + 1:]:
                 self.assertFalse(signature <= other or other <= signature)
-        self.assertEqual({p["league"] for p in alternatives[0]}, {"eng.1", "tur.1", "esp.1"})
+        self.assertEqual({p["league"] for p in alternatives[0]}, {"eng.1", "tur.1"})
         self.assertTrue(all(p["id"] != 9 for coupon in alternatives for p in coupon))
         self.assertEqual(alternatives[0], select_banko(entries + [small]))
 
     def test_surprise_alternatives_are_unique_and_exclude_small_leagues(self):
         leagues = ("eng.1", "tur.1", "esp.1", "ger.1", "ita.1")
-        entries = [entry(i, {"X": (0.35, 3.1)}, league=league) for i, league in enumerate(leagues, 1)]
+        entries = [entry(i, {"X": (0.50, 2.3)}, league=league) for i, league in enumerate(leagues, 1)]
         small = entry(9, {"X": (0.5, 5.0)}, league="small:country:league")
         small[0]["small_league"] = True
         alternatives = select_surprise_alternatives(entries + [small])
@@ -219,8 +206,8 @@ class BuildCouponsTest(unittest.TestCase):
         target = (datetime.now(cp.TZ) + timedelta(days=2)).date()
         kickoff = datetime.combine(target, datetime.min.time(), cp.TZ).replace(hour=18).isoformat()
         leagues = {f"league.{i}": {"name": f"Liga {i}"} for i in range(1, 6)}
-        predictions = {league: [{**pred(i, {"1": (0.82 - i * 0.01, 1.35), "X": (0.35, 3.1)},
-                                                 kickoff=kickoff, league=league), "iddaa_odds": {}}]
+        predictions = {league: [{**pred(i, {"1": (0.82 - i * 0.01, 1.65), "X": (0.50, 2.3)},
+                                                 kickoff=kickoff, league=league), "iddaa_odds": {"1":1.65,"X":2.3}}]
                        for i, league in enumerate(leagues, 1)}
         fake_models = {league: type("M", (), {"upcoming_predictions": lambda self, days, p=items: p})()
                        for league, items in predictions.items()}

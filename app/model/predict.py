@@ -102,11 +102,13 @@ def confidence(p: float | None, n_min: float, news_teams: int | None = None) -> 
 
 # İsabet önceliği: tam maç skoru ile sonuçlandırılabilen standart pazarlar.
 PICK_MARKETS = ["1", "X", "2", "1X", "X2", "12", "Ü1.5", "A1.5", "Ü2.5", "A2.5", "Ü3.5", "A3.5", "KG Var", "KG Yok"]
-PICK_POLICY = "hit_rate_v1"
+PICK_POLICY = "balanced_v2"
+PICK_MIN_ODDS, PICK_MAX_ODDS = 1.40, 2.30
+PICK_MIN_P = .56
 
 
-def best_pick(mk: dict, min_odds: float = 1.01, actual_odds: dict | None = None) -> dict | None:
-    """Mevcut seçeneklerde en yüksek tahmini tutma olasılığı; oran getiri hedefi değildir.
+def best_pick(mk: dict, min_odds: float = PICK_MIN_ODDS, actual_odds: dict | None = None) -> dict | None:
+    """Orta oran bandında en yüksek tahmini olasılık. Bandın dışında öneri zorlanmaz.
 
     Gerçek oran sağlanmışsa yalnız o listede geçerli oranı olan pazar seçilir.
     Oran yoksa model önerisi açıkça ayrı kaynak olarak işaretlenir.
@@ -118,8 +120,9 @@ def best_pick(mk: dict, min_odds: float = 1.01, actual_odds: dict | None = None)
         quote = actual_odds.get(key) if actual_odds is not None else item.get("suggested")
         if (isinstance(probability, bool) or not isinstance(probability, (int, float))
                 or not math.isfinite(probability) or not 0 < probability <= 1
+                or (actual_odds is not None and probability < PICK_MIN_P)
                 or isinstance(quote, bool) or not isinstance(quote, (int, float))
-                or not math.isfinite(quote) or quote <= 1 or quote < min_odds):
+                or not math.isfinite(quote) or quote <= 1 or not min_odds <= quote <= PICK_MAX_ODDS):
             continue
         candidates.append({"market": key, **item, "odds": quote,
                            "odds_source": "iddaa" if actual_odds is not None else "model",

@@ -19,14 +19,14 @@ class ExtraMarketsTest(unittest.TestCase):
         self.assertLess(integer_line["İY A1"]["p"] + integer_line["İY Ü1"]["p"], 1)
         self.assertGreater(integer_line["İY A1"]["p"] + integer_line["İY Ü1"]["p"], 0.5)
 
-    def test_negative_handicap_is_applied_to_away_team(self):
+    def test_negative_handicap_gives_the_away_team_a_goal_advantage(self):
         markets = for_match(2.0, 0.5, {"Handikap -1 1": 1.9,
                                        "Handikap -1 X": 1.9,
                                        "Handikap -1 2": 1.9})
-        # Away -1 makes the adjusted score (home, away - 1).
-        # Home wins whenever the unadjusted score is level or a home win.
-        self.assertGreater(markets["Handikap -1 1"]["p"], 0.7)
-        self.assertLess(markets["Handikap -1 2"]["p"], 0.1)
+        # Source -1 displays 0:1: home must win by at least two goals.
+        plain = for_match(2.0, 0.5, {"Handikap 0 1": 1.9})
+        self.assertLess(markets["Handikap -1 1"]["p"], plain["Handikap 0 1"]["p"])
+        self.assertGreater(markets["Handikap -1 2"]["p"], plain["Handikap 0 2"]["p"])
 
     def test_corner_and_card_quotes_have_no_model_probability(self):
         markets = for_match(1.4, 1.0, {"Korner A9.5": 1.9, "Kart Ü4.5": 2.1})

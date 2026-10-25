@@ -4,12 +4,21 @@
 (function () {
   "use strict";
   const C = window.SlipCalc;
+  if (!C || typeof C.isSupported !== "function") {
+    // Eski HTML ile yeni betik karışırsa sürümlü URL yeni uygulama kabuğunu getirir.
+    window.Slip={button:()=>"",render:async()=>{},updateLive:()=>{}};
+    const url=new URL(window.location.href);
+    if(url.searchParams.get("app_version") !== "bulletin-v3") {
+      url.searchParams.set("app_version","bulletin-v3");window.location.replace(url.href);
+    }
+    return;
+  }
   const STORE_KEY = "iddiaoran.slip.v1";
   const REFRESH_AFTER_MS = 30 * 1000;
 
   const q = (s) => document.querySelector(s);
   const esc = (s) => String(s ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
-  const pct = (p, digits = 0) => (p * 100).toFixed(digits) + "%";
+  const pct = (p, digits = 0) => p === null ? "Hesaplanmadı" : (p * 100).toFixed(digits) + "%";
   const money = (n) => n.toLocaleString("tr-TR", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " ₺";
   const fmtDateTime = (iso) => new Date(iso).toLocaleString("tr-TR", { day: "numeric", month: "short", hour: "2-digit", minute: "2-digit" });
 
@@ -33,7 +42,8 @@
   // ---------- düğmeler (maç kartı + maç detayı) ----------
   function btnInner(on) { return on ? "✓ Kuponda" : "＋ Kupona ekle"; }
   function button(m, market) {
-    if (!m || !C.MARKETS.includes(market) || !m.markets || !m.markets[market]) return "";
+    const selection=m && C.isSupported(market) ? C.fromMatch(m,market) : null;
+    if (!selection || selection.iddaaOdds === null) return ""; // Yeni seçim yalnız gerçek bülten fiyatıyla eklenir.
     matchCache.set(String(m.id), m);
     const on = C.hasSelection(data.items, m.id, market);
     return `<button type="button" class="slip-add${on ? " on" : ""}" data-slip-id="${esc(m.id)}" data-slip-market="${esc(market)}" aria-pressed="${on}" title="${esc(m.home)} – ${esc(m.away)}: ${esc(market)} seçimini kupona ekle / çıkar">${btnInner(on)}</button>`;
@@ -131,33 +141,39 @@
   // ---------- Kuponum sekmesi ----------
   function marketBadge(market) {
     const group = C.GROUPS.find((g) => g.markets.includes(market));
-    return `<span class="badge b-info" title="${esc(group ? group.label : "")}">${esc(market)}</span>`;
+    return `<span class="badge b-info" title="${esc(group ? group.label : "")}">${esc(window.Simple?.headline(market) || market)}</span>`;
   }
   function oddsCell(r) {
     return `<b class="iddaa-odd">${r.odds.toFixed(2)}</b>` + (r.source === "iddaa"
-      ? `<span class="src src-iddaa">iddaa</span>`
+      ? `<span class="src src-iddaa">${r.quoteUnavailable ? "son alınan iddaa" : "iddaa"}</span>`
       : `<span class="src src-claude">tahmini</span>`);
   }
   function rowHtml(r, dupIds) {
     const flags = [];
     if (dupIds.has(r.id)) flags.push(`<span class="badge b-warn" title="Aynı maçtan birden fazla seçim">aynı maç</span>`);
     const view = C.resultView(r, Date.now());
+    if(C.isExperimental(r.market)) flags.push(`<span class="badge b-warn">Deneysel${r.manualStatus ? " · kullanıcı sonucu" : ""}</span>`);
+    const manual = view.completed && C.isExperimental(r.market) && !r.market.startsWith("Handikap ")
+      ? `<label class="small">Doğruladığınız seçim sonucu <select data-slip-result="${esc(r.key)}"><option value="">Bekliyor</option><option value="won" ${r.manualStatus === "won" ? "selected" : ""}>Tuttu</option><option value="lost" ${r.manualStatus === "lost" ? "selected" : ""}>Yattı</option></select></label>` : "";
     flags.push(`<span class="badge ${view.completed ? "b-info" : "b-warn"}">${view.label}</span>`);
     if (missing.has(r.id) && !view.completed) flags.push(`<span class="badge b-warn">Sonuç doğrulanamadı</span>`);
     return `<tr class="${dupIds.has(r.id) ? "slip-dup" : ""}" data-slip-row data-live-match="${esc(r.id)}" data-home="${esc(r.home)}" data-away="${esc(r.away)}" data-market="${esc(r.market)}">
       <td class="l"><b>${esc(r.home)}</b> – ${esc(r.away)}<span class="claude-odd">${esc(r.leagueName)}</span></td>
-      <td>${fmtDateTime(r.kickoff)} <span class="live-score">${view.score ? `<span class="badge b-info">${view.score}</span>` : ""}</span></td><td>${marketBadge(r.market)} <span class="live-status">${view.result ? `<span class="badge ${view.result === "Yattı" ? "b-bad" : "b-good"}">${view.result}</span>` : ""}</span> ${flags.join(" ")}</td>
+      <td>${fmtDateTime(r.kickoff)} <span class="live-score">${view.score ? `<span class="badge b-info">${view.score}</span>` : ""}</span></td><td>${marketBadge(r.market)} <span class="live-status">${view.result ? `<span class="badge ${view.result === "Yattı" ? "b-bad" : "b-good"}">${view.result}</span>` : ""}</span> ${flags.join(" ")}${manual}</td>
       <td>${oddsCell(r)}</td><td>${pct(r.p)}</td>
       <td><button type="button" class="slip-remove" data-slip-remove="${esc(r.key)}" aria-label="${esc(r.home)} – ${esc(r.away)} ${esc(r.market)} seçimini çıkar">×</button></td></tr>`;
   }
   function warningsHtml(s) {
     const out = [];
+    if(s.rows.some((r)=>r.quoteUnavailable)) out.push(`<div class="slip-warn">Bazı seçimlerin oranı artık bültende yok; son alınan oran korunuyor, güncel fiyat olarak kullanılmamalı.</div>`);
+    if(s.uniqueMatches < s.minMatches) out.push(`<div class="slip-warn bad">Bu seçimlerin MBS kuralı ${s.minMatches} farklı maç gerektiriyor; kuponda ${s.uniqueMatches} farklı maç var.</div>`);
     for (const g of s.sameMatch) {
       const name = `<b>${esc(g.home)} – ${esc(g.away)}</b>`, mk = g.markets.map(esc).join(" + ");
       out.push(g.impossible
         ? `<div class="slip-warn bad">⚠ ${name}: ${mk} aynı anda gerçekleşemez; bu kupon kazanamaz (tutma ihtimali %0 sayıldı).</div>`
         : `<div class="slip-warn">⚠ ${name} maçından ${g.markets.length} seçim var (${mk}). Aynı maçın seçimleri birbirine bağlıdır; tutma ihtimali bağımsız varsayımıyla hesaplanan yaklaşık bir değerdir ve bahis sitelerinde bu birleşim kabul edilmeyebilir.</div>`);
     }
+    if (s.rows.some((r)=>C.isExperimental(r.market))) out.push(`<div class="slip-warn">Deneysel seçimler kalibre edilmemiştir. İlk yarı, İY/MS, korner ve kart sonuçları tam maç skorundan çıkarılmaz; maç bittikten sonra doğruladığınız sonucu seçebilirsiniz.</div>`);
     if (s.finishedCount) out.push(`<div class="slip-warn info">${s.finishedCount} seçimin maçı tamamlandı; son skorlar yukarıda gösteriliyor.</div>`);
     if (s.startedCount) out.push(`<div class="slip-warn bad">⚠ ${s.startedCount} seçimin maçının başlama saati geçti; sonuçlar kontrol ediliyor. Bu maçlara yeni seçim yapılamaz.</div>`);
     if (s.claudeCount) out.push(`<div class="slip-warn info">ℹ ${s.claudeCount} seçimde iddaa oranı yok, tahmini oran kullanıldı. Bu gerçek bahis oranı değildir; kazanç buna göre tahmindir.</div>`);
@@ -206,7 +222,7 @@
         <button type="button" class="btn" id="slipRefresh" ${refreshing ? "disabled" : ""}>${refreshing ? "Yenileniyor…" : "Skorları ve oranları yenile"}</button>
         <button type="button" class="btn btn-ghost" id="slipClear">Kuponu temizle</button>
       </div>
-      <p class="muted slip-note">Tutma ihtimali, seçimlerin model olasılıklarının çarpımıdır (seçimlerin birbirinden bağımsız olduğu varsayılır). Kupon bu tarayıcıda saklanır; oranlar zamanla değişebilir. Tahmindir, garanti değildir.</p>
+      <p class="muted slip-note">Bilinen olasılıklar bağımsızlık varsayımıyla birleştirilir. Olasılığı hesaplanmayan bir seçim varsa toplam tutma şansı gösterilmez. Kupon bu tarayıcıda saklanır; oranlar zamanla değişebilir. Tahmindir, garanti değildir.</p>
     </div>`;
     window.Extras?.slipExtras(el, s, data.stake);
     if (focus !== null) { const inp = q("#slipStake"); inp.focus(); inp.setSelectionRange(focus, focus); }
@@ -232,6 +248,13 @@
     else if (t.id === "slipRefresh") refresh();
     else if (t.id === "slipShare") { const s = C.summarize(data.items, data.stake, Date.now()); window.CouponShare?.share({ title: "Kuponum", date: new Date().toLocaleDateString("sv-SE", { timeZone: "Europe/Istanbul" }), picks: s.rows.map((r) => ({ home: r.home, away: r.away, market: r.market, odds: r.odds, kickoff: r.kickoff })), totalOdds: s.totalOdds }, q("#slipShareSize").value); }
   }, true);
+
+  document.addEventListener("change", (event)=>{
+    const key=event.target.dataset.slipResult;
+    if(!key) return;
+    data.items=data.items.map((item)=>C.keyOf(item) === key ? {...item,manualStatus:["won","lost"].includes(event.target.value) ? event.target.value : null} : item);
+    changed();
+  });
 
   document.addEventListener("input", (e) => {
     if (e.target.id !== "slipStake") return;
