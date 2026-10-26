@@ -47,6 +47,16 @@ class DailyBulletinTest(unittest.TestCase):
         self.assertEqual(detail['id'],'iddaa:a')
         self.assertEqual(detail['iddaa_odds']['2'],4.0)
 
+    def test_full_bulletin_includes_other_leagues_when_main_day_is_empty(self):
+        self.event('other-tomorrow','small:tr:league','2026-10-27T17:00:00+00:00',True)
+        result=build_bulletin(date(2026,10,27),'all')
+        self.assertEqual(result['total'],1)
+        self.assertEqual(result['groups'][0]['league'],'small:tr:league')
+        self.assertEqual(build_bulletin(date(2026,10,27),'main')['total'],0)
+        self.event('major','tur.1','2026-10-27T18:00:00+00:00')
+        result=build_bulletin(date(2026,10,27),'all')
+        self.assertEqual([g['league'] for g in result['groups']],['tur.1','small:tr:league'])
+
     def test_source_event_alias_resolves_a_later_confirmed_result(self):
         self.event('source','tur.1','2026-10-25T17:00:00+00:00')
         with db.session() as c:
@@ -86,3 +96,80 @@ class FullOddsDetailTest(unittest.TestCase):
         with patch.object(iddaa,'fetch_json',side_effect=TimeoutError):stats=iddaa.enrich_events([summary])
         self.assertEqual(iddaa._market_odds(summary['m']),{'1':1.8})
         self.assertEqual(stats['detail_failed'],1)
+
+
+class DateCoverageTests(unittest.TestCase):
+    setUp=DailyBulletinTest.setUp
+    event=DailyBulletinTest.event
+    def fixture(self, mid, kickoff, completed=0, hg=None, ag=None):
+        with db.session() as c:
+            c.execute('INSERT INTO matches(id,league,kickoff,home,away,completed,home_goals,away_goals) VALUES(?,?,?,?,?,?,?,?)',
+                      (mid,'tur.1',kickoff,'Fixture Home','Fixture Away',completed,hg,ag))
+
+    def test_yesterday_results_survive_an_empty_prematch_source_without_new_predictions(self):
+        self.fixture('yesterday','2026-10-25T17:00:00+00:00',1,2,1)
+        from app import main
+        with patch.object(main.engine,'get_model',side_effect=AssertionError('past model must not be rebuilt')):
+            result=build_bulletin(date(2026,10,25),'main')
+            detail=main.match('yesterday')
+        item=result['groups'][0]['matches'][0]
+        self.assertEqual((result['total'],item['summary']['headline']),(1,'Bitti'))
+        self.assertIsNone(item['pick'])
+        self.assertIn('2–1',detail['summary']['title'])
+
+    def test_tomorrow_fixture_is_visible_before_real_odds_are_published(self):
+        self.fixture('future','2099-01-02T17:00:00+00:00')
+        from app.model import predict as P
+        fake=type('Model',(),{'predict':lambda self,*args:{'markets':P.markets(P.score_matrix(1.8,.8))['markets'],
+                                                        'pick':None,'data_quality':1,'data_n':20}})()
+        with patch('app.bulletin_api.engine.get_model',return_value=fake):result=build_bulletin(date(2099,1,2),'main')
+        item=result['groups'][0]['matches'][0]
+        self.assertEqual(result['fixture_only'],1)
+        self.assertEqual(item['alternative']['candidate_status'],'odds_missing')
+        self.assertEqual(item['summary']['recommendation_label'],'Model ön tahmini')
+        self.assertIsNone(item['summary']['odds'])
+        self.assertFalse(item['odds_current'])
+
+    def test_past_small_bulletin_is_preserved_when_active_events_are_replaced(self):
+        from app import bulletin_archive,main
+        self.event('old-small','small:tr:league','2026-10-25T17:00:00+00:00',True)
+        with db.session() as c:
+            bulletin_archive.preserve_current(c)
+            c.execute('DELETE FROM iddaa_odds');c.execute('DELETE FROM iddaa_events')
+        result=build_bulletin(date(2026,10,25),'other')
+        item=result['groups'][0]['matches'][0]
+        self.assertEqual((result['total'],item['iddaa_odds']['1']),(1,1.8))
+        self.assertTrue(item['is_archived'])
+        self.assertFalse(item['odds_current'])
+        self.assertIsNone(item['pick'])
+        detail=main.match('iddaa:old-small')
+        self.assertEqual(detail['summary']['headline'],'Arşiv kaydı')
+
+    def test_archived_source_alias_keeps_its_confirmed_match_result(self):
+        from app import bulletin_archive,main
+        from app.results_api import results
+        self.fixture('paired','2026-10-25T17:00:00+00:00',1,1,0)
+        self.event('paired-event','tur.1','2026-10-25T17:00:00+00:00')
+        with db.session() as c:
+            c.execute("UPDATE iddaa_events SET match_id='paired' WHERE id='paired-event'")
+            bulletin_archive.preserve_current(c)
+            c.execute('DELETE FROM iddaa_odds');c.execute('DELETE FROM iddaa_events')
+        result=results(['iddaa:paired-event'])['matches']['iddaa:paired-event']
+        self.assertEqual((result['state'],result['home_goals']),("post",1))
+        detail=main.match('iddaa:paired-event')
+        self.assertEqual(detail['id'],'iddaa:paired-event')
+        self.assertIn('1–0',detail['summary']['title'])
+
+    def test_no_older_small_archive_does_not_claim_there_were_no_matches(self):
+        result=build_bulletin(date(2026,10,25),'other')
+        self.assertEqual(result['total'],0)
+        self.assertIn('arşivi bulunmuyor',result['empty_reason'])
+
+    def test_historical_source_prices_can_be_shown_from_existing_match_odds_log(self):
+        self.fixture('past','2026-10-25T17:00:00+00:00',1,0,0)
+        with db.session() as c:
+            c.execute("INSERT INTO odds_log(match_id,market,odd,first_odd,first_seen,updated_at) VALUES('past','X',3.2,3.1,'2026-10-25T12:00Z','2026-10-25T16:00Z')")
+        item=build_bulletin(date(2026,10,25),'main')['groups'][0]['matches'][0]
+        self.assertEqual(item['iddaa_odds']['X'],3.2)
+        self.assertFalse(item['odds_current'])
+        self.assertEqual(item['summary']['headline'],'Bitti')

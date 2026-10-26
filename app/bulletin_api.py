@@ -1,12 +1,13 @@
-"""Günlük bülten: model eşleşmesi olmayan gerçek iddaa maçları da kaybolmaz."""
+"""Günlük görünüm: güncel oranlar, kalıcı fikstür/sonuçlar ve kaynak bülten arşivi."""
 import json
 from datetime import date, datetime, timedelta, timezone
 from fastapi import APIRouter, HTTPException
 from .config import LEAGUES
 from .db import session, get_meta
-from .model import engine
-from .scrapers.iddaa import load_constraints
-from . import ops
+from . import ops, explain, bulletin_archive
+from .model import engine, extra_markets, snapshots
+from .model.blend import blend_prediction
+from .scrapers.iddaa import load_constraints, match_event
 from .model.coupons import TZ
 from .model.small_leagues import bulletin_event
 
@@ -15,62 +16,127 @@ LEAGUE_ORDER = ('tur.1', 'eng.1', 'esp.1', 'ger.1', 'ita.1', 'fra.1', 'tur.2',
                 'ned.1', 'por.1', 'uefa.champions', 'uefa.europa')
 
 
+def fixture_view(fixture, source=None):
+    """Geçmişe yeni tahmin üretme; gelecek fikstürü gerçek oran yokken de görünür tut."""
+    if source is None:
+        with session() as conn:
+            rows=conn.execute('SELECT market,odd,updated_at FROM odds_log WHERE match_id=?',(str(fixture['id']),)).fetchall()
+        source={'odds':{r['market']:r['odd'] for r in rows},'updated_at':max((r['updated_at'] for r in rows),default=None)} if rows else {}
+    now = datetime.now(timezone.utc)
+    started = datetime.fromisoformat(fixture['kickoff'].replace('Z','+00:00')) <= now
+    base = {**fixture, 'id':str(fixture['id']), 'league_name':LEAGUES[fixture['league']]['name'],
+            'country':LEAGUES[fixture['league']]['country'], 'iddaa_odds':source.get('odds',{}),
+            'iddaa_event_id':source.get('id'), 'iddaa_updated_at':source.get('updated_at'),
+            'iddaa_min_matches':source.get('min_matches',{}), 'odds_current':False,
+            'fixture_only':not bool(source.get('id')), 'is_archived':bool(source), 'pick':None}
+    if started or fixture.get('completed'):
+        out = bulletin_event({**base, 'small_league':True, 'result_only':True})
+        out['summary']=explain.summarize(out)
+        return out
+    prediction=engine.get_model(fixture['league']).predict(fixture['home'],fixture['away'],
+                    datetime.fromisoformat(fixture['kickoff'].replace('Z','+00:00')))
+    out={**base,**blend_prediction(prediction,{}),'model_only':True}
+    out['summary']=explain.summarize(out)
+    return out
+
+
 def build_bulletin(day: date, category: str, league: str | None = None):
-    start = datetime.combine(day, datetime.min.time(), TZ).astimezone(timezone.utc)
-    end = start + timedelta(days=1)
+    start=datetime.combine(day,datetime.min.time(),TZ).astimezone(timezone.utc)
+    end=start+timedelta(days=1)
+    now=datetime.now(timezone.utc)
     with session() as conn:
-        rows = conn.execute('SELECT e.*,o.market,o.odd FROM iddaa_events e '
-                            'LEFT JOIN iddaa_odds o ON o.event_id=e.id '
-                            'WHERE e.kickoff>=? AND e.kickoff<? ORDER BY e.kickoff,e.id',
-                            (start.isoformat(), end.isoformat())).fetchall()
-        constraints = load_constraints(conn)
-        updated = get_meta(conn, 'iddaa_last_update')
-        coverage = json.loads(get_meta(conn, 'iddaa_stats') or 'null')
-        days = sorted({datetime.fromisoformat(r['kickoff'].replace('Z','+00:00')).astimezone(TZ).date().isoformat()
-                       for r in conn.execute('SELECT kickoff FROM iddaa_events')})
-    events = {}
-    for row in rows:
-        if bool(row['is_small']) != (category == 'other') or (league and row['league'] != league):
-            continue
-        event = events.setdefault(row['id'], {**dict(row), 'iddaa_odds': {}})
-        if row['market'] and row['odd']:
-            event['iddaa_odds'][row['market']] = row['odd']
-    modeled, limited = [], []
-    for event in events.values():
-        base = {k: event[k] for k in ('league','kickoff','home','away','country','competition_id')}
-        base['country'] = LEAGUES.get(event['league'], {}).get('country', event['country'])
-        base.update({'league_name': LEAGUES.get(event['league'], {}).get('name', event['league_name']),
-                     'iddaa_event_id': event['id'], 'iddaa_updated_at': event['updated_at'],
-                     'iddaa_min_matches': constraints.get(event['id'], {})})
-        # Kimliği doğrulanmış fikstür varsa model kurulabilir; eksik eşleşme bültenden maçı silmez.
-        model = engine.get_model(event['league']) if event['match_id'] and event['league'] in LEAGUES else None
-        fixture = next((m for m in model.upcoming if str(m['id']) == str(event['match_id'])), None) if model else None
-        if fixture:
-            prediction = model.predict(fixture['home'], fixture['away'], datetime.fromisoformat(event['kickoff'].replace('Z','+00:00')))
-            modeled.append({**base, **prediction, 'id': str(event['match_id'])})
+        raw=conn.execute('SELECT e.*,o.market,o.odd FROM iddaa_events e LEFT JOIN iddaa_odds o ON o.event_id=e.id '
+                         'WHERE e.kickoff>=? AND e.kickoff<? ORDER BY e.kickoff,e.id',
+                         (start.isoformat(),end.isoformat())).fetchall()
+        fixtures=[]
+        if category!='other':
+            keys=[league] if league else list(LEAGUES)
+            marks=','.join('?' for _ in keys)
+            fixtures=[dict(row) for row in conn.execute('SELECT * FROM matches WHERE kickoff>=? AND kickoff<? '
+                      f'AND league IN ({marks}) ORDER BY kickoff,id',[start.isoformat(),end.isoformat(),*keys])]
+        histories={}
+        if fixtures:
+            ids=[str(m['id']) for m in fixtures];marks=','.join('?' for _ in ids)
+            for row in conn.execute(f'SELECT match_id,market,odd,updated_at FROM odds_log WHERE match_id IN ({marks})',ids):
+                source=histories.setdefault(row['match_id'],{'odds':{},'updated_at':row['updated_at']})
+                source['odds'][row['market']]=row['odd']
+                source['updated_at']=max(source['updated_at'],row['updated_at'])
+        constraints=load_constraints(conn)
+        archived=bulletin_archive.load_day(conn,day)
+        updated=get_meta(conn,'iddaa_last_update')
+        coverage=json.loads(get_meta(conn,'iddaa_stats') or 'null')
+        day_rows=conn.execute('SELECT kickoff FROM iddaa_events') if category=='all' else conn.execute('SELECT kickoff FROM iddaa_events WHERE is_small=?',(int(category=='other'),))
+        day_stamps=[r['kickoff'] for r in day_rows]
+        if category!='other':
+            keys=[league] if league else list(LEAGUES);marks=','.join('?' for _ in keys)
+            day_stamps += [r['kickoff'] for r in conn.execute(f'SELECT kickoff FROM matches WHERE league IN ({marks}) AND kickoff>=? AND kickoff<?',
+                            [*keys,(now-timedelta(days=30)).isoformat(),(now+timedelta(days=31)).isoformat()])]
+        days=sorted(set(bulletin_archive.available_days(conn)) |
+                    {datetime.fromisoformat(t.replace('Z','+00:00')).astimezone(TZ).date().isoformat() for t in day_stamps})
+    def belongs(event):
+        return (category=='all' or bool(event.get('is_small',str(event['league']).startswith('small:'))) == (category=='other')) and (not league or event['league']==league)
+    events={}
+    active=set()
+    for row in raw:
+        row=dict(row)
+        if not belongs(row):continue
+        event=events.setdefault(row['id'],{**dict(row),'odds':{},'min_matches':constraints.get(row['id'],{})})
+        if row['market'] and row['odd']:event['odds'][row['market']]=row['odd']
+        active.add(row['id'])
+    for event_id,event in archived.items():
+        if event_id not in events and belongs(event):events[event_id]=event
+    by_id={str(m['id']):m for m in fixtures}
+    covered=set();matches=[];modeled=[]
+    for event_id,event in events.items():
+        fixture=by_id.get(str(event.get('match_id')))
+        if fixture is None and event['league'] in LEAGUES:fixture=match_event(event,fixtures)[0]
+        if fixture and str(fixture['id']) in covered:continue
+        if fixture:covered.add(str(fixture['id']))
+        current=event_id in active and datetime.fromisoformat(event['kickoff'].replace('Z','+00:00'))>now and not (fixture or {}).get('completed')
+        if fixture and not current:
+            matches.append(fixture_view(fixture,event));continue
+        base={k:event.get(k) for k in ('league','kickoff','home','away','country','competition_id')}
+        base.update(id=str(fixture['id']) if fixture else 'iddaa:'+event_id,
+                    league_name=LEAGUES.get(event['league'],{}).get('name') or event.get('league_name') or event['league'],
+                    country=LEAGUES.get(event['league'],{}).get('country',event.get('country','')),
+                    iddaa_event_id=event_id,iddaa_updated_at=event.get('updated_at'),
+                    iddaa_min_matches=event.get('min_matches',{}),odds_current=current,
+                    is_archived=not current,iddaa_odds=event.get('odds',{}))
+        if fixture and current:
+            prediction=engine.get_model(event['league']).predict(fixture['home'],fixture['away'],
+                          datetime.fromisoformat(event['kickoff'].replace('Z','+00:00')))
+            out={**base,**blend_prediction(prediction,event['odds'])}
+            out['extra_markets']=extra_markets.for_match(out['lambda_home'],out['lambda_away'],event['odds'])
+            out['summary']=explain.summarize(out);modeled.append(out);matches.append(out)
         else:
-            limited.append(bulletin_event({**base, 'id': 'iddaa:'+event['id'], 'small_league': True,
-                                          'bulletin_only': True, 'iddaa_odds': event['iddaa_odds']}))
-    from .main import _attach_iddaa_odds
-    matches = _attach_iddaa_odds(modeled) + limited
-    groups = {}
+            out=bulletin_event({**base,'small_league':True,'bulletin_only':True})
+            out['summary']=explain.summarize(out)
+            matches.append(out)
+    for fixture in fixtures:
+        if str(fixture['id']) not in covered:matches.append(fixture_view(fixture,histories.get(str(fixture["id"]),{})))
+    if modeled:
+        with session() as conn:snapshots.record_safely(conn,modeled)
+    groups={}
     for item in matches:
-        group = groups.setdefault(item['league'], {'league':item['league'], 'name':item['league_name'],
-                                                   'country':item.get('country',''), 'matches':[]})
+        group=groups.setdefault(item['league'],{'league':item['league'],'name':item['league_name'],
+                                                'country':item.get('country') or '','matches':[]})
         group['matches'].append(item)
-    rank = {key:i for i,key in enumerate(LEAGUE_ORDER)}
-    ordered = sorted(groups.values(), key=lambda g:(rank.get(g['league'],999),g['country'],g['name']))
-    for group in ordered:
-        group['matches'].sort(key=lambda m: (-(m.get('confidence') or 0), m['kickoff'], m['id']))
-    return {'day':day.isoformat(), 'category':category, 'groups':ordered, 'total':len(matches),
-            'modeled':len(modeled), 'limited':len(limited), 'coverage':coverage, 'updated_at':updated, 'available_days':days}
+    rank={key:i for i,key in enumerate(LEAGUE_ORDER)}
+    ordered=sorted(groups.values(),key=lambda g:(rank.get(g['league'],999),g['country'],g['name']))
+    for group in ordered:group['matches'].sort(key=lambda m:(-(m.get('confidence') or 0),m['kickoff'],m['id']))
+    past=day<now.astimezone(TZ).date()
+    return {'day':day.isoformat(),'category':category,'groups':ordered,'total':len(matches),
+            'modeled':sum(not m.get('small_league') for m in matches),'limited':sum(bool(m.get('small_league')) for m in matches),
+            'fixture_only':sum(bool(m.get('fixture_only')) for m in matches),
+            'archived':sum(bool(m.get('is_archived')) for m in matches),
+            'coverage':coverage,'updated_at':updated,'available_days':days,
+            'empty_reason':('Bu tarih için kaydedilmiş bülten arşivi bulunmuyor.' if past else
+                            'Kaynakta bu gün için henüz fikstür veya bülten kaydı bulunmuyor.') if not matches else None}
 
 
 @router.get('/api/bulletin')
-def bulletin(day: date | None = None, category: str = 'main', league: str | None = None):
-    if category not in ('main','other'):
-        raise HTTPException(400, 'Bilinmeyen bülten türü')
-    if league and (category != 'main' or league not in LEAGUES):
-        raise HTTPException(400, 'Bilinmeyen lig')
-    target = day or datetime.now(TZ).date()
-    return ops.cached(('bulletin', target, category, league), lambda: build_bulletin(target, category, league))
+def bulletin(day: date | None = None, category: str = 'all', league: str | None = None):
+    if category not in ('all','main','other'):raise HTTPException(400,'Bilinmeyen bülten türü')
+    if league and (category=='other' or league not in LEAGUES):raise HTTPException(400,'Bilinmeyen lig')
+    target=day or datetime.now(TZ).date()
+    return ops.cached(('bulletin',target,category,league),lambda:build_bulletin(target,category,league))

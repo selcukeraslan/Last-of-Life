@@ -37,7 +37,7 @@ test('an old cached calculator triggers a single versioned reload instead of cra
  const window={SlipCalc:{MARKETS:[]},location:{href:'https://example.test/',replace:(url)=>{redirected=url;}}};
  const context=vm.createContext({window,URL});
  vm.runInContext(fs.readFileSync('static/slip.js','utf8'),context);
- assert.match(redirected,/app_version=bulletin-v3/);
+ assert.match(redirected,/app_version=bulletin-v4/);
  assert.equal(window.Slip.button({},'1'),'');
  window.location.href=redirected;redirected='';
  vm.runInContext(fs.readFileSync('static/slip.js','utf8'),context);

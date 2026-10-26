@@ -24,6 +24,16 @@ def results(ids: Annotated[list[str], Query(min_length=1, max_length=30)]):
                 'FROM iddaa_events e JOIN matches m ON m.id=e.match_id WHERE e.id IN ('+placeholders+')', aliases):
                 mid='iddaa:'+row['event_id']
                 rows[mid]={**dict(row),'id':mid}
+        if aliases:
+            from . import bulletin_archive
+            for event_id in aliases:
+                mid='iddaa:'+event_id
+                if mid in rows:continue
+                archived=bulletin_archive.find_event(conn,event_id)
+                if not archived or not archived.get('match_id'):continue
+                row=conn.execute('SELECT kickoff,completed,home_goals,away_goals,status,updated_at FROM matches WHERE id=?',
+                                 (archived['match_id'],)).fetchone()
+                if row:rows[mid]={**dict(row),'id':mid}
     now = datetime.now(timezone.utc)
     out = {}
     for mid in ids:

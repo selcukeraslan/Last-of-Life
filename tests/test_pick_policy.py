@@ -37,3 +37,17 @@ class BalancedPolicyTest(unittest.TestCase):
         for bad in (True, None, math.nan, math.inf, 1, -1):
             self.assertIsNone(P.best_pick({'1': P.odds(.8)}, actual_odds={'1': bad}))
         self.assertIsNone(P.best_pick({'İlk yarı 1': P.odds(.99)}))
+
+
+class CandidateDisplayTests(unittest.TestCase):
+    def test_below_threshold_candidate_is_not_promoted_to_a_strong_recommendation(self):
+        from app import explain
+        pred={'id':'m','home':'H','away':'A','pick':None,'markets':{'1':P.odds(.53)},'data_n':20,'data_quality':1}
+        out=blend.blend_prediction(pred,{'1':1.9})
+        self.assertIsNone(out['pick'])
+        self.assertEqual(out['alternative']['market'],'1')
+        summary=explain.summarize(out)
+        self.assertEqual(summary['recommendation_label'],'Aday seçenek')
+        self.assertIn('%56',summary['reason'])
+        self.assertEqual(summary['odds'],1.9)
+        self.assertEqual(summary['level'],0)

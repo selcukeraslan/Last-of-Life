@@ -128,3 +128,30 @@ def best_pick(mk: dict, min_odds: float = PICK_MIN_ODDS, actual_odds: dict | Non
                            "odds_source": "iddaa" if actual_odds is not None else "model",
                            "policy": PICK_POLICY})
     return max(candidates, key=lambda item: item["p"], default=None)
+
+
+def candidate(mk: dict, actual_odds: dict) -> dict | None:
+    """Güçlü öneri yoksa gerçek fiyatlı en olası adayı açık statüyle göster."""
+    options=[]
+    for market in PICK_MARKETS:
+        item=mk.get(market,{})
+        p,quote=item.get('p'),actual_odds.get(market)
+        if (isinstance(p,bool) or not isinstance(p,(int,float)) or not math.isfinite(p) or not 0<p<=1
+                or isinstance(quote,bool) or not isinstance(quote,(int,float)) or not math.isfinite(quote) or quote<=1):
+            continue
+        options.append({'market':market,**item,'odds':quote,'odds_source':'iddaa','policy':'candidate_v1'})
+    in_band=[item for item in options if PICK_MIN_ODDS<=item['odds']<=PICK_MAX_ODDS]
+    if in_band:
+        out=max(in_band,key=lambda item:item['p'])
+        return {**out,'candidate_status':'below_threshold'}
+    if options:
+        # Bandın dışındaki adayı en yakın gerçek fiyattan göster; uygun öneri gibi etiketleme.
+        out=min(options,key=lambda item:(min(abs(item['odds']-PICK_MIN_ODDS),abs(item['odds']-PICK_MAX_ODDS)),-item['p']))
+        return {**out,'candidate_status':'outside_band'}
+    return None
+
+
+def model_preview(mk: dict) -> dict | None:
+    choices=[{'market':key,**mk[key],'odds':None,'odds_source':None,'policy':'model_preview',
+              'candidate_status':'odds_missing'} for key in ('1','X','2') if mk.get(key,{}).get('p') is not None]
+    return max(choices,key=lambda item:item['p'],default=None)

@@ -72,7 +72,8 @@ def small_league_recommendation(prediction: dict, choices: list[dict] | None = N
     if prediction.get("small_league") and not prediction.get("data_availability", {}).get("market_probabilities"):
         return None
     choices = choices if choices is not None else _choices(prediction, prediction.get("iddaa_odds", {}))
-    valid = [c for c in choices if c["market"] in {"1", "1X", "X2", "2"} and c["p"] >= 0.50]
+    valid = [c for c in choices if c['market'] in SUPPORTED_MARKETS and c['p'] >= .50
+             and c['odds_source']=='iddaa' and 1.40 <= c['odds'] <= 2.30]
     return max(valid, key=lambda c: (c["p"], -c["odds"])) if valid else None
 
 
@@ -186,7 +187,7 @@ def select_small_league(entries: list[tuple[dict, list[dict]]]) -> list[dict]:
     picks = []
     for prediction, choice in best[:4]:
         pick = _match_view(prediction, choice)
-        pick.update({"confidence": "Düşük", "small_league": True})
+        pick.update({"confidence": None, "confidence_label":"Model güveni yok", "small_league": True})
         picks.append(pick)
     return picks if len(picks) >= max([2]+[p.get('min_matches',1) for p in picks]) else []
 
@@ -217,7 +218,7 @@ def build_coupons(target: date) -> dict:
         small_entries.append((p, _choices(p, p["iddaa_odds"])))
     small_picks = select_small_league(small_entries)
     small_coupon = _coupon("small", small_picks,
-        "Küçük liglerde veri ve kadro bilgisi sınırlıdır; güven düşüktür. Küçük miktar kullanın, garanti değildir.")
+        "Bu kupon iddaa piyasa olasılıklarına dayanır; takım modeli güveni hesaplanmaz.")
     for pick in small_coupon["picks"]:
         pick["league_name"] = grouped[pick["id"]]["league_name"]
         pick["country"] = grouped[pick["id"]]["country"]

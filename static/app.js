@@ -14,7 +14,7 @@ if (!$("#bulletinDays")) {
 }
 const bulletinToday = () => new Date().toLocaleDateString("sv-SE", {timeZone:"Europe/Istanbul"});
 const matchFilters = {high:false, live:false};
-const state = {league:null, bulletinCategory:"main", bulletinDay:bulletinToday(), bulletinReq:0,
+const state = {league:null, bulletinCategory:"all", bulletinDay:bulletinToday(), bulletinReq:0,
   tab:"matches", leagues:[], couponDate:bulletinToday(), couponReq:0, matchReq:0, live:new Map()};
 
 function selectionResult(market, h, a, state) {
@@ -95,7 +95,7 @@ function img(src) { return src ? `<img src="${esc(src)}" alt="" loading="lazy" o
 
 function renderLeagueChips() {
   const chip=(label,league,on)=>`<button type="button" class="chip${on ? " active" : ""}" data-league="${league}">${label}</button>`;
-  $("#leagueChips").innerHTML=`<div class="league-group main-league-group">${chip("Tüm ana ligler","all",state.bulletinCategory === "main" && !state.league)}${chip("Diğer ligler","other",state.bulletinCategory === "other")}<label class="league-select">Lig filtresi <select data-league-select><option value="all">Tüm ana ligler</option>${state.leagues.map((league)=>`<option value="${esc(league.id)}" ${state.league === league.id ? "selected" : ""}>${esc(league.name)}</option>`).join("")}</select></label></div>`;
+  $("#leagueChips").innerHTML=`<div class="league-group main-league-group">${chip("Tüm bülten","all",state.bulletinCategory === "all" && !state.league)}${chip("Diğer ligler","other",state.bulletinCategory === "other")}<label class="league-select">Lig filtresi <select data-league-select><option value="all">Lig filtresi yok</option>${state.leagues.map((league)=>`<option value="${esc(league.id)}" ${state.league === league.id ? "selected" : ""}>${esc(league.name)}</option>`).join("")}</select></label></div>`;
 }
 
 async function loadLeagues() {
@@ -128,16 +128,18 @@ function matchCard(m) {
       </div>
       <div class="time">${live ? liveBadge(live) : fmtDateTime(m.kickoff)}</div>
     </div>
-    <div class="bulletin-prices" aria-label="Maç sonucu oranları">${["1","X","2"].map((key)=>`<span>MS ${key === "X" ? "0" : key} <b>${m.iddaa_odds?.[key] == null ? "—" : Number(m.iddaa_odds[key]).toFixed(2)}</b></span>`).join("")}<small>${m.iddaa_updated_at ? "Oran: "+fmtTime(m.iddaa_updated_at) : "Oran alınamadı"}</small></div>
+    <div class="bulletin-prices" aria-label="Maç sonucu oranları">${["1","X","2"].map((key)=>`<span>MS ${key === "X" ? "0" : key} <b>${m.iddaa_odds?.[key] == null ? "—" : Number(m.iddaa_odds[key]).toFixed(2)}</b></span>`).join("")}<small>${m.result_only ? "Geçmiş maç" : m.odds_current === false && m.is_archived ? "Arşiv oranları" : m.iddaa_updated_at ? "Oran: "+fmtTime(m.iddaa_updated_at) : "İddaa oranı bekleniyor"}</small></div>
     <div class="m-pick">${Simple.pickBlock(m)}
-      ${m.pick ? `<div class="m-actions">${Slip.button(m, m.pick.market)}<span class="m-more">Ayrıntılar ›</span></div>` : `<div class="m-actions"><span class="m-more">Ayrıntılar ›</span></div>`}
+      ${(m.pick || m.alternative) ? `<div class="m-actions">${Slip.button(m, (m.pick || m.alternative).market)}<span class="m-more">Ayrıntılar ›</span></div>` : `<div class="m-actions"><span class="m-more">Ayrıntılar ›</span></div>`}
     </div>
   </div>`;
 }
 
+function resetMatchFilters() { matchFilters.high=false; matchFilters.live=false; }
+function setBulletinDay(day) { resetMatchFilters(); state.bulletinDay=day; renderMatches(); }
 function shiftBulletinDay(amount) {
   const day = new Date(state.bulletinDay+"T12:00:00Z"); day.setUTCDate(day.getUTCDate()+amount);
-  state.bulletinDay = day.toISOString().slice(0,10); renderMatches();
+  setBulletinDay(day.toISOString().slice(0,10));
 }
 function renderBulletinDays() {
   const quick = [0,1,2].map((offset)=>{
@@ -157,6 +159,7 @@ async function renderMatches() {
     const data=await api(`/api/bulletin?${query}`,{cache:"no-store"});
     if(request !== state.bulletinReq) return;
     state.bulletinData=data; state.matchList=data.groups.flatMap((g)=>g.matches);
+    if(!state.matchList.some((m)=>m.pick && m.confidence != null)) matchFilters.high=false;
     drawMatchList(); window.Today?.render();
     if(state.league) renderTable(); else $("#table").innerHTML="";
   } catch(error) { if(request === state.bulletinReq) el.innerHTML=Ui.error(error.message); }
@@ -166,12 +169,12 @@ function drawMatchList() {
   if(!data) return;
   const allowed=(m)=>(!matchFilters.high || m.confidence_label === "Yüksek") && (!matchFilters.live || state.live.get(String(m.id))?.state === "in");
   const list=state.matchList.filter(allowed);
-  const filters=`<div class="fav-bar match-filters">${[["high","Yüksek güven"],["live","Canlı"]].map(([key,label])=>`<button class="chip${matchFilters[key] ? " active" : ""}" data-match-filter="${key}" aria-pressed="${matchFilters[key]}">${label}</button>`).join("")}</div>`;
+  const filters=`<div class="fav-bar match-filters">${[["high","Yüksek güven"],["live","Canlı"]].filter(([key])=>key !== "high" || (data.category !== "other" && state.matchList.some((m)=>m.pick && m.confidence != null))).map(([key,label])=>`<button class="chip${matchFilters[key] ? " active" : ""}" data-match-filter="${key}" aria-pressed="${matchFilters[key]}">${label}</button>`).join("")}</div>`;
   const groups=data.groups.map((group)=>{
     const matches=group.matches.filter(allowed);
     return matches.length ? `<section class="bulletin-league"><h3 class="day-head">${esc(group.country)} · ${esc(group.name)} <span class="muted">${matches.length} maç</span></h3>${matches.map(matchCard).join("")}</section>` : "";
   }).join("");
-  el.innerHTML=filters+(window.Extras ? Extras.filterButton() : "")+(groups || Ui.empty("Bu gün için maç yok", "Başka bir gün seçin veya filtreleri kapatın."));
+  el.innerHTML=filters+(window.Extras ? Extras.filterButton() : "")+(groups || Ui.empty(data.total ? "Filtrelere uyan maç yok" : "Bu gün için kayıt bulunamadı", data.total ? "Yüksek güven/canlı/favori filtresini kapatın." : data.empty_reason || "Kaynak kapsamındaki başka bir gün seçin."));
   el.querySelectorAll("[data-match-filter]").forEach((button)=>button.addEventListener("click",()=>{
     const key=button.dataset.matchFilter; matchFilters[key]=!matchFilters[key]; drawMatchList();
   }));
@@ -179,11 +182,11 @@ function drawMatchList() {
 }
 $("#bulletinDays").addEventListener("click",(event)=>{
   const day=event.target.closest("[data-bulletin-day]"), shift=event.target.closest("[data-bulletin-shift]");
-  if(day) {state.bulletinDay=day.dataset.bulletinDay;renderMatches();}
+  if(day) setBulletinDay(day.dataset.bulletinDay);
   if(shift) shiftBulletinDay(Number(shift.dataset.bulletinShift));
 });
 $("#bulletinDays").addEventListener("change",(event)=>{
-  if(event.target.id === "bulletinDate" && /^\d{4}-\d{2}-\d{2}$/.test(event.target.value)) {state.bulletinDay=event.target.value;renderMatches();}
+  if(event.target.id === "bulletinDate" && /^\d{4}-\d{2}-\d{2}$/.test(event.target.value)) {setBulletinDay(event.target.value);}
 });
 
 async function renderCoupons() {
@@ -244,7 +247,6 @@ function renderSmallMatch(m) {
       <div class="team"><h3>${esc(m.away)}</h3></div>
     </div>
     <div class="card hero">
-      <div class="hero-label">İddaa favorisi</div>
       ${Simple.pickBlock(m)}
       ${m.pick ? `<div class="hero-foot">${Slip.button(m, m.pick.market)}</div>` : ""}
     </div>
@@ -284,10 +286,10 @@ async function openMatch(id, competitionId = null) {
   if (m.small_league) { renderSmallMatch(m); return; }
   const f = m.factors, k = m.markets;
   const th = f.table.home, ta = f.table.away;
-  const pk = m.pick, s = Simple.info(m);
+  const pk = m.pick || m.alternative, s = Simple.info(m);
   const hero = pk
-    ? `<div class="hero-label">Bizim önerimiz</div>${Simple.pickBlock(m)}<div class="hero-foot">${Slip.button(m, pk.market)}</div>`
-    : `<div class="hero-label">Bizim önerimiz</div>${Simple.pickBlock(m)}`;
+    ? `${Simple.pickBlock(m)}<div class="hero-foot">${Slip.button(m, pk.market)}</div>`
+    : `${Simple.pickBlock(m)}`;
 
   const rowFor = (key, hl) => `<tr${hl ? ' class="hl"' : ""}><td class="l"><b>${esc(Simple.headline(key))}</b> <span class="muted">${esc(marketText(key, m))}</span></td><td>${k[key] ? pct(k[key].p) : "-"}</td><td>${m.iddaa_odds?.[key] ?? "-"}${oddsMove(m, key)}</td><td>${Slip.button(m, key)}</td></tr>`;
   const marketsRows = ["1", "X", "2", "1X", "12", "X2", "Ü1.5", "A1.5", "Ü2.5", "A2.5", "Ü3.5", "A3.5", "KG Var", "KG Yok"].map((key) => rowFor(key, pk && pk.market === key)).join("");
@@ -379,12 +381,14 @@ async function pollUpdate() {
 }
 $("#leagueChips").addEventListener("change",(event)=>{
   if(!event.target.matches("[data-league-select]")) return;
-  state.bulletinCategory="main"; state.league=event.target.value === "all" ? null : event.target.value;
+  resetMatchFilters();
+  state.bulletinCategory=event.target.value === "all" ? "all" : "main"; state.league=event.target.value === "all" ? null : event.target.value;
   renderLeagueChips();render();
 });
 $("#leagueChips").addEventListener("click", (event)=>{
   const chip=event.target.closest("[data-league]"); if(!chip) return;
-  state.bulletinCategory=chip.dataset.league === "other" ? "other" : "main";
+  resetMatchFilters();
+  state.bulletinCategory=chip.dataset.league === "other" ? "other" : chip.dataset.league === "all" ? "all" : "main";
   state.league=["all","other"].includes(chip.dataset.league) ? null : chip.dataset.league;
   renderLeagueChips();render();
 });

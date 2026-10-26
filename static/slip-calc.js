@@ -66,6 +66,7 @@
 
   /** /api/match ya da /api/upcoming yanıtındaki bir maç + pazardan kupon seçimi; olmuyorsa null. */
   function fromMatch(m, market, leagueName) {
+    if(m?.odds_current === false) return null;
     const mk = m && (m.markets?.[market] || m.extra_markets?.[market]);
     if (!mk || !isSupported(market)) return null;
     const sel = {

@@ -420,6 +420,8 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
     now = datetime.now(timezone.utc).isoformat()
 
     # Yalnız başarılı ve parse edilebilir bir yanıttan sonra eski bülteni değiştir.
+    from .. import bulletin_archive
+    bulletin_archive.preserve_current(conn)
     conn.execute("DELETE FROM iddaa_odds")
     conn.execute("DELETE FROM iddaa_events")
     # Bir ESPN maçına en fazla bir iddaa etkinliği bağlanır; aksi halde iki etkinliğin
@@ -441,6 +443,7 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
         if fixture and best_for_fixture[fixture["id"]][1] != event["id"]:
             fixture, score = None, 0.0
         match_id = fixture["id"] if fixture else None
+        event.update(match_id=match_id, updated_at=now, is_small=int(event["league"].startswith("small:")))
         matched += int(fixture is not None)
         event_rows.append(
             (event["id"], event["league"], event["competition_id"], event["kickoff"],
@@ -459,6 +462,7 @@ def sync_odds(conn, progress=None, retries: int = 3) -> dict:
             league_name, country, is_small, updated_at)
            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""", event_rows)
     conn.executemany("INSERT INTO iddaa_odds(event_id, market, odd) VALUES (?, ?, ?)", odds_rows)
+    bulletin_archive.record(conn, events)
     odds_history.record_snapshot(conn, events, now)
     odds_history.prune(conn)
 

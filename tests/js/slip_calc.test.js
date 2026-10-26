@@ -215,3 +215,7 @@ test('a removed real quote is retained as unavailable rather than replaced by a 
  assert.equal(updated.quoteUnavailable,true);
  assert.equal(C.effectiveOdds(updated).source,'iddaa');
 });
+
+test('archived or fixture-only odds cannot be added as current bookmaker selections',()=>{
+ assert.equal(C.fromMatch({...A,odds_current:false},'1'),null);
+});

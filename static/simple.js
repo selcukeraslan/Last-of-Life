@@ -51,19 +51,20 @@
   /** Bir maç/öneri nesnesinden gösterilecek tek öneri. */
   function info(m) {
     if (m.summary) return m.summary;
-    const pick = m.pick;
-    if (!pick) return { market: null, headline: "Net öneri yok", title: m.small_league ? "Model verisi sınırlı; gerçek bülten oranları gösteriliyor" : "Oran bandında uygun öneri yok", odds: null, level: 0, level_label: "", reason: "" };
+    const pick = m.pick || m.alternative;
+    if (!pick) return { market: null, headline: "Veri bekleniyor", title: "Seçim hesabı için yeterli oran grubu veya model verisi yok", odds: null, level: 0, level_label: "", reason: "" };
     const small = !!m.small_league;
     return {
       market: pick.market, headline: headline(pick.market), title: title(pick.market),
       odds: pick.odds ?? m.iddaa_odds?.[pick.market] ?? null,
       level: small ? 0 : LEVELS[m.confidence_label] || 1, level_label: small ? "" : m.confidence_label || "",
-      reason: small ? "Bu lig için ayrıntılı takım verisi yok; öneri iddaa oranlarındaki favoriye dayanır." : "",
+      reason: small ? "Bu seçenek, marjı temizlenmiş iddaa piyasa olasılığına dayanır; takım modeli güveni değildir." : "",
+      recommendation_label: small ? "Piyasa adayı" : "",
     };
   }
 
   function levelBadge(level, label) {
-    if (!level) return `<span class="conf conf-0">Sınırlı veri</span>`;
+    if (!level) return `<span class="conf conf-0">${esc(label || "Sınırlı veri")}</span>`;
     const text = { 3: "Yüksek güven", 2: "Orta güven", 1: "Düşük güven" }[level];
     return `<span class="conf conf-${level}" aria-label="${esc(label || text)}"><span class="conf-bars" aria-hidden="true"><i></i><i></i><i></i></span>${text}</span>`;
   }
@@ -75,7 +76,7 @@
   /** Büyük öneri bloğu: [MS 2] Deplasman kazanır · güven · oran. */
   function pickBlock(m) {
     const s = info(m);
-    return `<div class="pick-main">
+    return `${s.recommendation_label && s.market ? `<div class="hero-label">${esc(s.recommendation_label)}</div>` : ""}<div class="pick-main">
       <span class="pick-chip${s.market ? "" : " none"}">${esc(s.headline)}</span>
       <div class="pick-text"><b>${esc(s.title)}</b>${s.market ? levelBadge(s.level, s.level_label) : ""}</div>
       ${s.market ? oddsBox(s.odds) : ""}

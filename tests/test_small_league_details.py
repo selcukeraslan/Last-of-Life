@@ -53,7 +53,7 @@ class SmallLeagueDetailsTests(unittest.TestCase):
         detail = main.match(event_id, competition_id=competition_id)
         self.assertEqual((detail["iddaa_event_id"], detail["competition_id"]), (event_id, competition_id))
         self.assertEqual(detail["iddaa_odds"], rows[0]["iddaa_odds"])
-        self.assertEqual(detail["confidence_label"], "Düşük")
+        self.assertEqual(detail["confidence_label"], "Model güveni yok")
         self.assertTrue({"1", "X", "2", "1X", "12", "X2", "Ü1.5", "A1.5", "Ü2.5",
                          "A2.5", "Ü3.5", "A3.5", "KG Var", "KG Yok", "Ev 0.5Ü", "Dep 0.5Ü"}
                         <= set(detail["markets"]))
@@ -92,7 +92,7 @@ class SmallLeagueDetailsTests(unittest.TestCase):
         self.assertIsNone(result["markets"]["1"]["p"])
         self.assertIsNone(result["markets"]["1"]["suggested"])
         self.assertIsNone(result["confidence"])
-        self.assertEqual(result["confidence_label"], "Düşük")
+        self.assertEqual(result["confidence_label"], "Model güveni yok")
         self.assertFalse(result["data_availability"]["form"])
         self.assertFalse(result["data_availability"]["standings"])
 
@@ -108,3 +108,19 @@ class SmallLeagueDetailsTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class BulletinCandidateTests(unittest.TestCase):
+    def test_small_league_gets_a_medium_price_market_candidate_without_model_confidence(self):
+        result=bulletin_event({'id':'source','iddaa_odds':{'1':2.0,'X':3.5,'2':4.0,'A2.5':1.8,'Ü2.5':1.9}})
+        pick=result['pick']
+        self.assertIsNotNone(pick)
+        self.assertTrue(1.4<=pick['odds']<=2.3)
+        self.assertEqual(pick['candidate_type'],'market_candidate')
+        self.assertEqual(pick['probability_source'],'iddaa_market')
+        self.assertIsNone(result['confidence'])
+        self.assertFalse(pick['model_available'])
+
+    def test_incomplete_or_closed_quote_groups_do_not_get_invented_probabilities(self):
+        self.assertIsNone(bulletin_event({'id':'partial','iddaa_odds':{'1':1.8}})['pick'])
+        self.assertIsNone(bulletin_event({'id':'archive','iddaa_odds':{'1':2,'X':3.5,'2':4},'odds_current':False})['pick'])

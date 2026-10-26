@@ -23,5 +23,5 @@ test("small-league picks say they rest on bulletin odds only", () => {
   assert.equal(info.headline, "MS 2");
   assert.equal(info.title, "Deplasman kazanır");
   assert.equal(info.level, 0);
-  assert.match(info.reason, /iddaa oranlarındaki favoriye/);
+  assert.match(info.reason, /iddaa piyasa olasılığına/);
 });
