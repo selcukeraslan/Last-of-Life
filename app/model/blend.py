@@ -1,7 +1,11 @@
 """iddaa.com oranlarından marjı temizlenmiş (implied) olasılıklar ve modelle ağırlıklı harmanlama.
 
-Akış: iddaa oranı -> 1/oran -> aynı pazar grubunun toplamına bölünerek marj temizlenir (1X2: üçlü,
-Alt/Üst ve KG: ikili) -> model olasılığıyla doğrusal harman: p = (1-w)·p_model + w·p_piyasa.
+Akış: iddaa oranı -> 1/oran -> aynı pazar grubunda marj temizlenir (bkz. devig) -> model olasılığıyla
+doğrusal harman: p = (1-w)·p_model + w·p_piyasa.
+Marj temizleme: ikili gruplar (Alt/Üst, KG) orantılı bölme; üçlü 1X2 ise "güç" (power) yöntemi
+(q_i^k, Σ=1; Clarke-Kovalchik-Reid 2017). iddaa 1X2 marjı ~%14 olduğundan orantılı bölme favoriyi
+sistematik düşük tahmin eder (kendi verimizde 481 maçta favori bantları 6-10 puan düşük; güç yöntemi
+log-loss 0.9149 -> 0.9092); ikili pazarlarda iki yöntem fark etmez (ölçüldü), basit olan korunur.
 w = MODEL["market_weight"]. Bir pazar grubunun oranı yoksa (veya tutarsızsa) o pazarda model aynen kalır.
 Çifte şans (1X, 12, X2) iddaa'nın kendi çifte şans oranından değil, harmanlı 1X2'den türetilir; böylece
 pazarlar birbiriyle tutarlı kalır. Beklenen goller (xG) ve skor olasılıkları model değeridir, harmanlanmaz.
@@ -25,14 +29,38 @@ GROUPS = {
 BOOK_MIN, BOOK_MAX = 0.98, 1.50
 
 
+def devig_method(outcomes: int) -> str:
+    """Grup büyüklüğüne göre kullanılan marj temizleme yöntemi (denetim/açıklama alanları için)."""
+    return "power" if outcomes >= 3 else "multiplicative_normalization"
+
+
+def _power(q: list[float]) -> list[float]:
+    """Σ q_i^k = 1 olacak k'yı ikiye bölmeyle bulur; marj favoriden az, sürprizden çok alınır."""
+    lo, hi = 0.5, 4.0
+    for _ in range(60):
+        k = (lo + hi) / 2
+        if sum(x ** k for x in q) > 1:
+            lo = k
+        else:
+            hi = k
+    k = (lo + hi) / 2
+    probs = [x ** k for x in q]
+    total = sum(probs)
+    return [x / total for x in probs]
+
+
 def devig(odds: list[float]) -> list[float] | None:
-    """Oranlardan marjı temizlenmiş olasılıklar (toplam 1); oranlar geçersizse None."""
+    """Oranlardan marjı temizlenmiş olasılıklar (toplam 1); oranlar geçersizse None.
+    İkili grupta orantılı bölme, üçlü ve üstünde güç yöntemi (bkz. modül açıklaması)."""
     if not odds or any(isinstance(o, bool) or not isinstance(o, (int, float)) or not math.isfinite(o) or o <= 1.0 for o in odds):
         return None
-    book = sum(1 / o for o in odds)
+    q = [1 / o for o in odds]
+    book = sum(q)
     if not BOOK_MIN <= book <= BOOK_MAX:
         return None
-    return [1 / o / book for o in odds]
+    if len(q) >= 3:
+        return _power(q)
+    return [x / book for x in q]
 
 
 def implied_groups(iddaa_odds: dict) -> dict[str, dict[str, float]]:
@@ -97,7 +125,7 @@ def blend_markets(model_markets: dict, iddaa_odds: dict, weight: float | None = 
         group = next((name for name,keys in GROUPS.items() if m in keys and name in groups),None)
         if m in ('1X','12','X2') and '1x2' in groups:group='1x2'
         book = sum(1/iddaa_odds[k] for k in GROUPS[group]) if group else None
-        item.update(decision_quality.comparison(item,group=group,book=book))
+        item.update(decision_quality.comparison(item,group=group,book=book,outcomes=len(GROUPS[group]) if group else 2))
     return out, list(groups)
 
 
@@ -114,7 +142,8 @@ def blend_prediction(pred: dict, iddaa_odds: dict, weight: float | None = None, 
             if key not in markets:continue
             item=markets[key]
             item.setdefault('model_p',pred['markets'][key]['p']);item['market_p']=round(q,4)
-            item.update(decision_quality.comparison(item,group=group,book=sum(1/iddaa_odds[k] for k in GROUPS[group])))
+            item.update(decision_quality.comparison(item,group=group,book=sum(1/iddaa_odds[k] for k in GROUPS[group]),
+                                                    outcomes=len(GROUPS[group])))
     out = {**pred, "markets": markets, "blend": {"applied": bool(groups), "weight": w, "groups": groups, "group_weights":group_weights or {}}}
     if "pick" in pred:
         out["pick"] = P.best_pick(markets, actual_odds=iddaa_odds)

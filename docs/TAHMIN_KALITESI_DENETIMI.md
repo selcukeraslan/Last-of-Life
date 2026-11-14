@@ -63,14 +63,14 @@ Bu bilgiler mevcut `meta` tablosunda event bazında, toplu yazılarak tutulur; m
 
 ## Beşiktaş – Gençlerbirliği ve v2 karşılaştırması
 
-Kaynak: [İddaa event 3279014](https://sportsbookv2.iddaa.com/sportsbook/event/3279014). 8 Kasım 2026'da alınmış, zaman damgalı küçük gerçek yanıt kesiti `tests/fixtures/besiktas_genclerbirligi_20261108_quotes.json` içindedir. Kaynakta -2 handikap üçlüsü gerçekten 2,00 / 3,85 / 2,24'tür; MS 2 marjsız karşılığı yaklaşık %37,01. Bu veriler sabit model tahmini olarak kullanılmaz; market eşleme ve matematik regresyonudur. [Resmi ürün kuralı](https://yardim.bilyoner.com/hc/tr/articles/14820679057937-Futbol-Bahisleri-Nelerdir): 0:2 HMS 2, deplasmanın kazanması/beraberliği/tek fark yenilgisinde kazanır. İşaret olasılığa uydurulmadı.
+Kaynak: [İddaa event 3279014](https://sportsbookv2.iddaa.com/sportsbook/event/3279014). 8 Kasım 2026'da alınmış, zaman damgalı küçük gerçek yanıt kesiti `tests/fixtures/besiktas_genclerbirligi_20261108_quotes.json` içindedir. Kaynakta -2 handikap üçlüsü gerçekten 2,00 / 3,85 / 2,24'tür; MS 2 marjsız karşılığı orantılı bölmeyle yaklaşık %37,01, üçlü gruplarda kullanılan güç yöntemiyle %37,52. Bu veriler sabit model tahmini olarak kullanılmaz; market eşleme ve matematik regresyonudur. [Resmi ürün kuralı](https://yardim.bilyoner.com/hc/tr/articles/14820679057937-Futbol-Bahisleri-Nelerdir): 0:2 HMS 2, deplasmanın kazanması/beraberliği/tek fark yenilgisinde kazanır. İşaret olasılığa uydurulmadı.
 
 | Alan / davranış | v2 | Bu değişiklik |
 |---|---|---|
 | Sezon tablosu, Avrupa dinlenmesi | #67 ile uzlaştırma eklenmişti | W/D/L/GD/puan ayrımı, isim-ID birleştirme ve geçmiş cutoff sağlamlaştırıldı |
 | Değişmeyen 53 fiyat sonrası yeni `odds_updated_at` | Neden değiştiği anlaşılamıyordu | Son kontrol değişebilir, son gözlenen fiyat değişimi aynı kalır; sağlayıcı zamanı null |
 | Verilen örnek: model 0,7105 / piyasa 0,4828 / harman 0,5966 | Ayrışma gösterilebilir; seçimde kullanılabilirdi | Aynı girdilerin yüzdeleri elle değiştirilmez; fark **22,77 puan**, inceleme gerekir. Kalibrasyon yoksa bu aday otomatik önerilmez |
-| Verilen örnek: -2 MS 2 model %64,10 | Deneysel olasılık görülebilirdi | Kaynak marjsız %37,01 ile yaklaşık **27,09 puan** fark açık; deneysel ve otomatik havuz dışında |
+| Verilen örnek: -2 MS 2 model %64,10 | Deneysel olasılık görülebilirdi | Kaynak marjsız ≈%37,5 ile yaklaşık **27 puan** fark açık; deneysel ve otomatik havuz dışında |
 | Geçmiş analiz | Güncel güç/tablo karışabilirdi | Cutoff öncesi sonuçlarla yeniden kurulur, kesin point-in-time veri iddiası yok |
 | Haber etkisi alanı | Maç sayısı yanlış yazılabiliyordu | Gerçek haber katkısı; haber yokken 0 |
 | Güven | Kalibrasyon yokken Yüksek olabiliyordu | İlgili kalibrasyon yoksa en fazla Orta; olasılık ayrı kalır |

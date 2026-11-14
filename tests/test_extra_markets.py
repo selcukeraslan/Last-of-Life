@@ -43,7 +43,9 @@ class ExtraMarketsTest(unittest.TestCase):
         item=for_match(2.1,1.0,odds)['Handikap -2 1']
         self.assertEqual(item['settlement_definition']['home_goal_adjustment'],-2)
         self.assertEqual(item['settlement_definition']['selection'],'1')
-        self.assertAlmostEqual(item['market_p'],.5/(.5+1/3.85+1/2.24),places=4)
+        from app.model.blend import devig
+        self.assertAlmostEqual(item['market_p'],devig([2.0,3.85,2.24])[0],places=4)
+        self.assertEqual(item['devig_method'],'power')
         self.assertNotEqual(item['p'],item['market_p'])
         self.assertEqual(item['validation_status'],'experimental')
 

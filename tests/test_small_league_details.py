@@ -64,8 +64,9 @@ class SmallLeagueDetailsTests(unittest.TestCase):
         self.assertNotIn("factors", detail)
         self.assertFalse(detail["data_availability"]["xg"])
         self.assertFalse(detail["data_availability"]["scores"])
-        self.assertAlmostEqual(detail["markets"]["1"]["market_p"],
-                               (1 / 1.3) / (1 / 1.3 + 1 / 6 + 1 / 9), places=4)
+        from app.model.blend import devig
+        self.assertAlmostEqual(detail["markets"]["1"]["market_p"], devig([1.3, 6, 9])[0], places=4)
+        self.assertGreater(detail["markets"]["1"]["market_p"], (1 / 1.3) / (1 / 1.3 + 1 / 6 + 1 / 9))
 
         # The recommendation helper consumes the detail API's bulletin DTO. It
         # returns only source odds and market-implied probability, never a model price.

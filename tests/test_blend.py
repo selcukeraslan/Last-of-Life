@@ -29,12 +29,35 @@ def prediction(**kw):
             "data_n": 20, **P.confidence(P.best_pick(mk)["p"], 20)}
 
 
+def blend_power_exponent(probs, q):
+    """probs = q^k / Σ → k = ln(p0/p1) / ln(q0/q1)."""
+    import math
+    return math.log(probs[0] / probs[1]) / math.log(q[0] / q[1])
+
+
 class DevigTest(unittest.TestCase):
     def test_margin_removed_and_sums_to_one(self):
         probs = blend.devig([2.0, 3.5, 4.0])
         self.assertAlmostEqual(sum(probs), 1.0)
-        self.assertAlmostEqual(probs[0], 0.5 / (0.5 + 1 / 3.5 + 0.25))
         self.assertGreater(probs[0], probs[1])
+        self.assertGreater(probs[1], probs[2])
+
+    def test_three_way_power_method_takes_less_margin_from_favourite(self):
+        odds = [1.40, 4.20, 7.00]  # iddaa tipi ~%14 marj
+        q = [1 / o for o in odds]
+        proportional = [x / sum(q) for x in q]
+        probs = blend.devig(odds)
+        self.assertAlmostEqual(sum(probs), 1.0)
+        self.assertGreater(probs[0], proportional[0])  # favori orantılı bölmeden yüksek
+        self.assertLess(probs[2], proportional[2])  # sürpriz daha düşük
+        self.assertAlmostEqual(sum(x ** blend_power_exponent(probs, q) for x in q), 1.0, places=3)
+        self.assertEqual(blend.devig_method(3), "power")
+
+    def test_two_way_stays_proportional(self):
+        probs = blend.devig([1.50, 2.40])
+        q = [1 / 1.50, 1 / 2.40]
+        self.assertAlmostEqual(probs[0], q[0] / sum(q), places=6)
+        self.assertEqual(blend.devig_method(2), "multiplicative_normalization")
 
     def test_fair_two_way_unchanged(self):
         self.assertEqual([round(p, 4) for p in blend.devig([2.0, 2.0])], [0.5, 0.5])
