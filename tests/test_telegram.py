@@ -227,6 +227,32 @@ class ResultsTest(DbTestCase):
         self.assertIn("KAZANDI", text)
         self.assertIn("2-0", text)
 
+    def test_bulletin_leg_without_espn_row_settles_from_iddaa_results(self):
+        now = datetime(2026, 10, 17, 18, 0, tzinfo=UTC)
+        self.finish(1, 2, 0)
+        calls = []
+
+        def fetch(day):
+            calls.append(day)
+            return {"2": (1, 1)}
+
+        self.assertEqual(tg.post_results(now, self.send, fetch_results=fetch), ["sonuç 2026-10-17: gönderildi"])
+        self.assertEqual(calls, ["2026-10-17"])
+        text, _ = self.sent[0]
+        self.assertIn("KAZANDI", text)
+        self.assertIn("H2 - A&amp;2 <b>1-1</b>", text)
+
+    def test_iddaa_results_not_queried_before_result_delay_or_without_fetcher(self):
+        early = datetime(2026, 10, 17, 15, 0, tzinfo=UTC)  # 14:00Z başlangıçtan 1 saat sonra
+        self.finish(1, 2, 0)
+        calls = []
+        self.assertEqual(tg.post_results(early, self.send, fetch_results=lambda d: calls.append(d) or {}),
+                         ["sonuç 2026-10-17: maçlar bitmedi"])
+        self.assertEqual(calls, [])
+        late = datetime(2026, 10, 17, 18, 0, tzinfo=UTC)
+        self.assertEqual(tg.post_results(late, self.send), ["sonuç 2026-10-17: maçlar bitmedi"])
+        self.assertEqual(self.sent, [])
+
 
 class TestModeTest(DbTestCase):
     def test_test_day_sends_test_header_without_idempotency_record(self):
