@@ -47,11 +47,33 @@
     return `<div class="grok-verdict"><span class="badge ${verdict[1]}"${reason}>${verdict[0]}</span>${pick.grok_reason ? ` <small class="muted">${esc(pick.grok_reason)}</small>` : ""}${source}</div>`;
   }
 
+  const RESEARCH_STATUS = { confirmed: "doğrulandı", reported: "haber", conflicting: "çelişkili", unknown: "belirsiz" };
+  const RESEARCH_CATEGORY = { injury: "sakatlık", suspension: "ceza", lineup: "kadro", rotation: "rotasyon", fixture: "fikstür",
+    venue: "saha", manager: "hoca", motivation: "motivasyon", news: "haber", other: "diğer" };
+  const LINEUP_STATUS = { official: "kadro: resmî", predicted: "kadro: tahmini" };
+
+  function researchBadge(pick) {
+    const note = pick && pick.research && typeof pick.research === "object" ? pick.research : null;
+    if (!note) return "";
+    const count = Math.max(0, Math.trunc(numeric(note.findings_count) ?? 0));
+    const findings = (Array.isArray(note.findings) ? note.findings : []).filter((f) => f && typeof f === "object" && f.statement);
+    const risks = (Array.isArray(note.risks) ? note.risks : []).filter((r) => typeof r === "string" && r);
+    const confirmed = findings.filter((f) => f.status === "confirmed").length;
+    const label = `🔎 Araştırma: ${count} bulgu${confirmed ? ` (${confirmed} doğrulanmış)` : ""}`;
+    const lineup = LINEUP_STATUS[note.lineup_status] ? ` <span class="badge ${note.lineup_status === "official" ? "b-good" : "b-info"}">${LINEUP_STATUS[note.lineup_status]}</span>` : "";
+    const items = findings.map((f) => `<li><span class="research-tag">${esc(RESEARCH_CATEGORY[f.category] || f.category)} · ${esc(RESEARCH_STATUS[f.status] || f.status)}</span>${f.team ? ` <b>${esc(f.team)}</b>:` : ""} ${esc(f.statement)}</li>`).join("");
+    const riskItems = risks.map((r) => `<li><span class="research-tag">risk</span> ${esc(r)}</li>`).join("");
+    const body = items || riskItems || note.summary
+      ? `<details class="research-details"><summary>${note.summary ? esc(note.summary) : "Bulgular"}</summary>${items || riskItems ? `<ul>${items}${riskItems}</ul>` : ""}<p class="muted">Kaynaklı bulgu; olasılık ve seçim değişmez, karar için ayrıca doğrulayın.${numeric(note.sources) ? ` ${Math.trunc(numeric(note.sources))} kaynak.` : ""}</p></details>`
+      : "";
+    return `<div class="research-note"><span class="badge b-info">${esc(label)}</span>${lineup}${body}</div>`;
+  }
+
   function couponCard(coupon, title, badgeClass, share = null) {
     coupon = coupon && typeof coupon === "object" ? coupon : {};
     const picks = Array.isArray(coupon.picks) ? coupon.picks.filter((pick) => pick && typeof pick === "object") : [];
     const rows = picks.map((pick) => `<tr>
-      <td class="l" data-label="Maç"><b>${esc(pick.home || "Takım bilgisi yok")}</b> – ${esc(pick.away || "Takım bilgisi yok")}${grokBadge(pick)}</td>
+      <td class="l" data-label="Maç"><b>${esc(pick.home || "Takım bilgisi yok")}</b> – ${esc(pick.away || "Takım bilgisi yok")}${grokBadge(pick)}${researchBadge(pick)}</td>
       <td data-label="Lig">${esc(pick.league_name || pick.league || "-")}</td>
       <td data-label="Saat">${esc(pickTime(pick.kickoff))}</td>
       <td data-label="Seçim"><span class="badge b-info">${esc({"1X":"ÇŞ 1–0","X2":"ÇŞ 0–2","12":"ÇŞ 1–2"}[pick.market] || pick.market || "-")}</span></td>
@@ -168,7 +190,7 @@
     return `<section class="coupon-group"><h3>${label} Kupon Alternatifleri</h3>${content}</section>`;
   }
 
-  const api = { alternatives, couponCard, couponGroup, emptyReason, grokAuditCard, grokBadge };
+  const api = { alternatives, couponCard, couponGroup, emptyReason, grokAuditCard, grokBadge, researchBadge };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.CouponView = api;
 })();

@@ -111,6 +111,7 @@ CREATE TABLE IF NOT EXISTS saved_coupon_picks (
     status TEXT NOT NULL DEFAULT 'pending',   -- pending | won | lost | void
     home_goals INTEGER,
     away_goals INTEGER,
+    closing_odds REAL,              -- maçtan önce görülen son iddaa oranı (CLV için)
     PRIMARY KEY (day, kind, match_id)
 );
 
@@ -263,6 +264,9 @@ def init_db():
         for name in ("category", "reason"):
             if name not in news_cols:
                 conn.execute(f"ALTER TABLE news ADD COLUMN {name} TEXT")
+        pick_cols = {r["name"] for r in conn.execute("PRAGMA table_info(saved_coupon_picks)").fetchall()}
+        if "closing_odds" not in pick_cols:
+            conn.execute("ALTER TABLE saved_coupon_picks ADD COLUMN closing_odds REAL")
         conn.execute("CREATE INDEX IF NOT EXISTS ix_iddaa_events_small_kickoff ON iddaa_events(is_small, kickoff)")
         conn.execute("UPDATE iddaa_events SET is_small=1 WHERE league LIKE 'small:%'")
         conn.executescript(odds_log.SCHEMA)

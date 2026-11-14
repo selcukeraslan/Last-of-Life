@@ -270,8 +270,9 @@ def _track_coupons(freeze: bool):
                 _progress(f"Kupon geçmişine kaydedildi: {', '.join(saved)}")
         with session() as conn:
             done = coupon_history.settle(conn)
-        if done["picks"]:
-            _progress(f"Kupon sonuçları: {done['picks']} seçim, {done['coupons']} kupon sonuçlandı")
+        if done["picks"] or done.get("closing"):
+            _progress(f"Kupon sonuçları: {done['picks']} seçim, {done['coupons']} kupon sonuçlandı, "
+                      f"{done.get('closing', 0)} seçime kapanış oranı yazıldı")
     except Exception as exc:
         _progress(f"Kupon geçmişi güncellenemedi: {exc}")
 

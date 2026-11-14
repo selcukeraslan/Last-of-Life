@@ -142,7 +142,7 @@ def _choices(prediction: dict, iddaa_odds: dict) -> list[dict]:
 def _match_view(prediction: dict, choice: dict) -> dict:
     view = {"id": prediction["id"], "league": prediction["league"],
             "league_name": prediction.get("league_name") or LEAGUES.get(prediction["league"], {}).get("name", prediction["league"]),
-            "kickoff": prediction["kickoff"],
+            "kickoff": prediction["kickoff"], "iddaa_event_id": prediction.get("iddaa_event_id"),
             "home": prediction["home"], "away": prediction["away"], **choice,
             "model_probability": prediction.get("markets", {}).get(choice["market"], {}).get("model_p", choice.get("raw_p", choice["p"])),
             "market_probability": prediction.get("markets", {}).get(choice["market"], {}).get("market_p"),

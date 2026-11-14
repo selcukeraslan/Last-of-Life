@@ -1,5 +1,6 @@
 """P2: haber kaynaklarının önbelleği ve etkili haberli/habersiz A/B testi."""
 import tempfile
+import urllib.parse
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -46,7 +47,7 @@ class NewsCacheTests(unittest.TestCase):
                     "VALUES(?,?,?,?,?,0)",
                     (mid, league, (now + timedelta(hours=offset)).isoformat(), home, away))
         calls = []
-        def fake_fetch(team, lang):
+        def fake_fetch(team, lang, **_):
             calls.append(team)
             return []
         with patch.object(news, "fetch_team_news", side_effect=fake_fetch), \
@@ -62,6 +63,55 @@ class NewsCacheTests(unittest.TestCase):
                 "SELECT COUNT(*) n FROM meta WHERE key LIKE 'news_poll_%'"
             ).fetchone()["n"], 4)
         self.assertEqual(len(calls), 6)  # yalnız maçına 24 saat kalan iki takım yenilendi
+
+
+def rss(*titles):
+    items = "".join(f"<item><title>{t} - Kaynak</title><link>https://n/{i}</link><source>Kaynak</source>"
+                    f"<pubDate>Fri, 13 Nov 2026 10:00:00 GMT</pubDate></item>" for i, t in enumerate(titles))
+    return f"<rss><channel>{items}</channel></rss>".encode()
+
+
+class FakeResponse:
+    def __init__(self, body):
+        self.body = body
+
+    def read(self):
+        return self.body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+
+class TeamDisambiguationTests(unittest.TestCase):
+    """Aynı adlı yabancı kulüplerin (Athletic Club Sjdr, New York Athletic Club…) haberleri sızmasın."""
+
+    def test_english_query_scopes_to_league_and_adds_media_alias(self):
+        q = urllib.parse.parse_qs(urllib.parse.urlsplit(news.rss_url("Athletic Club", "en", "esp.1")).query)["q"][0]
+        self.assertTrue(q.startswith('("Athletic Club" OR "Athletic Bilbao") football (LaLiga OR "La Liga" OR Spain OR Spanish)'), q)
+        plain = urllib.parse.parse_qs(urllib.parse.urlsplit(news.rss_url("Arsenal", "en", "eng.1")).query)["q"][0]
+        self.assertTrue(plain.startswith('"Arsenal" football ("Premier League" OR England OR English)'), plain)
+        self.assertIn('"Arsenal" football when:', urllib.parse.parse_qs(urllib.parse.urlsplit(news.rss_url("Arsenal", "en")).query)["q"][0])
+        tr = urllib.parse.parse_qs(urllib.parse.urlsplit(news.rss_url("Besiktas", "tr", "tur.1")).query)["q"][0]
+        self.assertTrue(tr.startswith('"Beşiktaş" when:'), tr)
+
+    def test_title_filter_uses_word_boundaries_in_english_but_allows_turkish_suffixes(self):
+        self.assertTrue(news.mentions(news.fold("Athletic Club vs Barcelona"), ["athletic"], "en"))
+        self.assertFalse(news.mentions(news.fold("Oakland Athletics sign new pitcher"), ["athletic"], "en"))
+        self.assertFalse(news.mentions(news.fold("Nicely done by Marseille"), ["nice"], "en"))
+        self.assertTrue(news.mentions(news.fold("Galatasaraylı yıldız sakatlandı"), ["galatasaray"], "tr"))
+        self.assertTrue(news.mentions(news.fold("Beşiktaş'ın kadrosu açıklandı"), ["besiktas"], "tr"))
+
+    def test_fetch_keeps_alias_titles_and_classifies_them_as_own_team(self):
+        body = rss("Osasuna vs Athletic Bilbao: Confirmed Lineups", "Athletic Club playmaker Sancet out with injury",
+                   "Oakland Athletics trade news", "Standings - La Liga")
+        with patch.object(news.urllib.request, "urlopen", return_value=FakeResponse(body)) as opened:
+            items = news.fetch_team_news("Athletic Club", "en", league="esp.1")
+        self.assertIn("Athletic+Bilbao", opened.call_args[0][0].full_url)
+        self.assertEqual([i["title"] for i in items], ["Osasuna vs Athletic Bilbao: Confirmed Lineups", "Athletic Club playmaker Sancet out with injury"])
+        self.assertEqual(items[1]["injury"], 1)
 
 
 if __name__ == "__main__":

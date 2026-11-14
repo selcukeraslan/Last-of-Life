@@ -5,10 +5,12 @@
   kupon kaydedilmez; gün içinde uygun kupon çıkarsa sonraki çalışmada kaydedilir.
 * settle(): biten maçlara göre her seçimi won / lost / void, kuponu da won / lost / pending / void yapar.
   Tek seçim yattıysa kupon hemen yatmıştır; ertelenen / iptal edilen maç oranı 1.00 sayılır (void).
-* history(): tutma oranı, "her gün KUPON_BASINA 100 TL" kâr/zarar + ROI ve günlük liste.
+* history(): tutma oranı, "her gün KUPON_BASINA 100 TL" kâr/zarar + ROI, CLV ve günlük liste.
+* CLV (closing line value): kaydedilen oran / maçtan önce görülen son iddaa oranı − 1. Pozitifse piyasa
+  bizim yönümüze hareket etmiştir; uzun vadede kârın en erken ve en güvenilir öncü göstergesidir.
 """
 import json
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from ..db import get_meta, set_meta
 
@@ -65,7 +67,7 @@ def freeze(conn, coupons: dict, kinds: tuple[str, ...] = KINDS) -> list[str]:
                  p["away"], p["market"], p["odds"], p.get("odds_source"), p["p"]))
         # Seçimle birlikte kanıt durumunu da dondur; sonraki kalibrasyon geçmişi değiştirmesin.
         fields = ("model_probability", "market_probability", "raw_p", "calibration_n",
-                  "calibration_applied", "data_n", "probability_source", "value", "news_effect")
+                  "calibration_applied", "data_n", "probability_source", "value", "news_effect", "iddaa_event_id")
         metadata = {k: c[k] for k in ("selection_policy", "calibration_status", "calibration_note", "stake_note",
                                       "target_met", "selection_tier", "grok_replaces", "grok_note") if k in c}
         metadata["picks"] = {json.dumps([str(p["id"]), p["market"]]):
@@ -155,8 +157,55 @@ def _pick_outcome(row) -> tuple[str, int | None, int | None]:
     return state, row["home_goals"] if row["completed"] else None, row["away_goals"] if row["completed"] else None
 
 
+CLOSING_LOOKBACK = timedelta(days=35)  # iddaa oran geçmişi 30 gün tutulur; daha eski seçim için kapanış aranmaz
+
+
+def _event_ids(conn, cache: dict, day: str, kind: str) -> dict[tuple[str, str], str]:
+    """Dondurma anında seçimle kaydedilen iddaa etkinlik kimlikleri: {(match_id, market): event_id}."""
+    if (day, kind) not in cache:
+        metadata = json.loads(get_meta(conn, f"coupon_metadata:{day}:{kind}") or "{}")
+        ids = {}
+        for key, fields in (metadata.get("picks") or {}).items():
+            if fields.get("iddaa_event_id"):
+                ids[tuple(json.loads(key))] = str(fields["iddaa_event_id"])
+        cache[(day, kind)] = ids
+    return cache[(day, kind)]
+
+
+def closing_odds(conn, match_id: str, market: str, kickoff: str, event_id: str | None = None) -> float | None:
+    """Maçtan önce görülen son iddaa oranı: önce etkinlik oran geçmişi, yoksa ESPN eşleşmeli odds_log."""
+    for eid in dict.fromkeys(x for x in (event_id, match_id) if x):
+        row = conn.execute("SELECT odd FROM iddaa_odds_history WHERE event_id=? AND market=? AND captured_at<? "
+                           "ORDER BY captured_at DESC LIMIT 1", (eid, market, kickoff)).fetchone()
+        if row and row["odd"] and row["odd"] > 1:
+            return float(row["odd"])
+    row = conn.execute("SELECT odd FROM odds_log WHERE match_id=? AND market=? AND updated_at<?",
+                       (match_id, market, kickoff)).fetchone()
+    return float(row["odd"]) if row and row["odd"] and row["odd"] > 1 else None
+
+
+def record_closing(conn, now: datetime | None = None) -> int:
+    """Başlamış ve kapanış oranı henüz yazılmamış seçimlere kapanış oranını işler; bulunamayan sonraki turda denenir."""
+    now = now or _now()
+    rows = conn.execute(
+        "SELECT day, kind, match_id, market, kickoff FROM saved_coupon_picks "
+        "WHERE closing_odds IS NULL AND kickoff<? AND kickoff>=?",
+        (now.isoformat(), (now - CLOSING_LOOKBACK).isoformat())).fetchall()
+    cache, done = {}, 0
+    for r in rows:
+        event_id = _event_ids(conn, cache, r["day"], r["kind"]).get((r["match_id"], r["market"]))
+        close = closing_odds(conn, r["match_id"], r["market"], r["kickoff"], event_id)
+        if close is None:
+            continue
+        conn.execute("UPDATE saved_coupon_picks SET closing_odds=? WHERE day=? AND kind=? AND match_id=?",
+                     (close, r["day"], r["kind"], r["match_id"]))
+        done += 1
+    return done
+
+
 def settle(conn) -> dict:
-    """Biten maçlara göre bekleyen seçimleri ve kuponları işaretler. {"picks": n, "coupons": n} döner."""
+    """Biten maçlara göre bekleyen seçimleri ve kuponları işaretler, başlamış seçimlere kapanış oranını yazar.
+    {"picks": n, "coupons": n, "closing": n} döner."""
     rows = conn.execute(
         "SELECT p.day, p.kind, p.match_id, p.market, p.kickoff, m.completed, m.home_goals, m.away_goals, "
         "m.status AS match_status FROM saved_coupon_picks p LEFT JOIN matches m ON m.id = p.match_id "
@@ -170,6 +219,7 @@ def settle(conn) -> dict:
                      "WHERE day=? AND kind=? AND match_id=?", (status, hg, ag, r["day"], r["kind"], r["match_id"]))
         touched.add((r["day"], r["kind"]))
         picks_done += 1
+    closing_done = record_closing(conn)
     now, coupons_done = _now().isoformat(timespec="seconds"), 0
     for day, kind in touched:
         statuses = [x["status"] for x in conn.execute(
@@ -178,7 +228,7 @@ def settle(conn) -> dict:
         conn.execute("UPDATE saved_coupons SET status=?, settled_at=? WHERE day=? AND kind=?",
                      (new, None if new == "pending" else now, day, kind))
         coupons_done += new != "pending"
-    return {"picks": picks_done, "coupons": coupons_done}
+    return {"picks": picks_done, "coupons": coupons_done, "closing": closing_done}
 
 
 # --- Geçmiş / istatistik -------------------------------------------------------------
@@ -189,6 +239,14 @@ def effective_odds(picks: list[dict]) -> float:
         if p["status"] != "void":
             total *= p["odds"]
     return round(total, 2)
+
+
+def pick_clv(pick: dict) -> float | None:
+    """Kapanış oranına göre değer: kaydedilen oran / kapanış − 1 (iptal seçimler hariç)."""
+    close, odds = pick.get("closing_odds"), pick.get("odds")
+    if pick.get("status") == "void" or not close or not odds or close <= 1 or odds <= 1:
+        return None
+    return round(odds / close - 1, 4)
 
 
 def coupon_profit(coupon: dict) -> float | None:
@@ -207,21 +265,25 @@ def _summary(coupons: list[dict]) -> dict:
     returned = round(sum(STAKE * c["effective_odds"] for c in coupons if c["status"] == "won"), 2)
     picks = [p for c in coupons for p in c["picks"] if p["status"] in ("won", "lost")]
     picks_won = sum(p["status"] == "won" for p in picks)
+    clvs = [p["clv"] for c in coupons for p in c["picks"] if p.get("clv") is not None]
     return {"coupons": len(coupons), "won": won, "lost": lost, "pending": count("pending"), "void": count("void"),
             "hit_rate": won / (won + lost) if won + lost else None,
             "picks_settled": len(picks), "picks_won": picks_won,
             "pick_hit_rate": picks_won / len(picks) if picks else None,
             "stake": stake, "returned": returned, "profit": round(returned - stake, 2),
-            "roi": (returned - stake) / stake if stake else None}
+            "roi": (returned - stake) / stake if stake else None,
+            "clv_picks": len(clvs), "clv": round(sum(clvs) / len(clvs), 4) if clvs else None,
+            "clv_positive": sum(c > 0 for c in clvs)}
 
 
 def history(conn, days: int = 60) -> dict:
     """Tüm kayıtlı kuponların özeti ve en yeni `days` günün listesi."""
     picks_by = {}
     for r in conn.execute("SELECT * FROM saved_coupon_picks ORDER BY kickoff, match_id"):
-        picks_by.setdefault((r["day"], r["kind"]), []).append(
-            {k: r[k] for k in ("match_id", "league", "league_name", "kickoff", "home", "away", "market", "odds",
-                               "odds_source", "probability", "status", "home_goals", "away_goals")})
+        pick = {k: r[k] for k in ("match_id", "league", "league_name", "kickoff", "home", "away", "market", "odds",
+                                  "odds_source", "probability", "status", "home_goals", "away_goals", "closing_odds")}
+        pick["clv"] = pick_clv(pick)
+        picks_by.setdefault((r["day"], r["kind"]), []).append(pick)
     coupons = []
     for r in conn.execute("SELECT * FROM saved_coupons ORDER BY day DESC, kind"):
         c = {k: r[k] for k in ("day", "kind", "total_odds", "total_probability", "odds_source", "status",

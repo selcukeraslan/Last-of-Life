@@ -7,10 +7,13 @@ const chBadge = (s) => `<span class="badge ${CH_STATUS[s][1]}">${CH_STATUS[s][0]
 const chPct = (v, digits = 0) => (v == null ? "–" : (v * 100).toFixed(digits) + "%");
 const chTL = (v) => (v < 0 ? "−" : v > 0 ? "+" : "") + Math.abs(v).toLocaleString("tr-TR", { maximumFractionDigits: 2 }) + " TL";
 const chSign = (v) => (v > 0 ? "ch-win" : v < 0 ? "ch-loss" : "");
+// CLV: kaydedilen oran / kapanış oranı − 1. Pozitif = piyasa bizim yönümüze gitti (uzun vadeli kârın öncü göstergesi).
+const chClv = (v, digits = 1) => (v == null ? "–" : (v > 0 ? "+" : "") + (v * 100).toFixed(digits) + "%");
 
 function chPickRow(p) {
   const score = p.home_goals == null ? "" : `<span class="muted">${p.home_goals}-${p.away_goals}</span>`;
-  return `<tr><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name || p.league)}</td><td>${fmtDateTime(p.kickoff)}</td><td><span class="badge b-info">${esc(p.market)}</span></td><td>${p.odds.toFixed(2)}</td><td>${score}</td><td>${chBadge(p.status)}</td></tr>`;
+  const closing = p.closing_odds == null ? "" : ` <span class="muted" title="Kapanış oranı ${p.closing_odds.toFixed(2)}">→ ${p.closing_odds.toFixed(2)}</span>${p.clv == null ? "" : ` <span class="${chSign(p.clv)}">${chClv(p.clv)}</span>`}`;
+  return `<tr><td class="l"><b>${esc(p.home)}</b> – ${esc(p.away)}</td><td>${esc(p.league_name || p.league)}</td><td>${fmtDateTime(p.kickoff)}</td><td><span class="badge b-info">${esc(p.market)}</span></td><td>${p.odds.toFixed(2)}${closing}</td><td>${score}</td><td>${chBadge(p.status)}</td></tr>`;
 }
 
 function chCoupon(kind, c) {
@@ -24,7 +27,8 @@ function chCoupon(kind, c) {
 
 function chSummaryRow(label, s) {
   return `<tr><td class="l"><b>${label}</b></td><td>${s.won}/${s.won + s.lost}${s.pending ? ` <span class="muted">(+${s.pending} bekliyor)</span>` : ""}</td><td>${chPct(s.hit_rate)}</td>
-    <td>${s.stake.toLocaleString("tr-TR")} TL</td><td>${s.returned.toLocaleString("tr-TR")} TL</td><td class="${chSign(s.profit)}"><b>${chTL(s.profit)}</b></td><td class="${chSign(s.profit)}"><b>${chPct(s.roi, 1)}</b></td></tr>`;
+    <td>${s.stake.toLocaleString("tr-TR")} TL</td><td>${s.returned.toLocaleString("tr-TR")} TL</td><td class="${chSign(s.profit)}"><b>${chTL(s.profit)}</b></td><td class="${chSign(s.profit)}"><b>${chPct(s.roi, 1)}</b></td>
+    <td class="${chSign(s.clv)}" title="${s.clv_picks ? `${s.clv_picks} seçimin ${s.clv_positive}'i kapanıştan iyi oranla alındı` : "Henüz kapanış oranı kaydedilmiş seçim yok"}">${chClv(s.clv)}${s.clv_picks ? ` <span class="muted">(${s.clv_picks})</span>` : ""}</td></tr>`;
 }
 
 async function renderCouponHistory() {
@@ -46,9 +50,9 @@ async function renderCouponHistory() {
       <div class="card"><div class="muted">Her gün ${h.stake} TL yatırsaydın</div><div class="ch-big ${chSign(total.profit)}">${chTL(total.profit)}</div><div class="muted">Kâr oranı ${chPct(total.roi, 1)} · yatırılan ${total.stake.toLocaleString("tr-TR")} TL</div></div>
     </div>
     <div class="card"><h3>Her gün ${h.stake} TL yatırsaydın</h3>
-      <table><tr><th class="l">Kupon</th><th>Tutan/Sonuçlanan</th><th>Tutma</th><th>Yatırılan</th><th>Dönen</th><th>Kâr/Zarar</th><th>Kâr oranı</th></tr>
+      <table><tr><th class="l">Kupon</th><th>Tutan/Sonuçlanan</th><th>Tutma</th><th>Yatırılan</th><th>Dönen</th><th>Kâr/Zarar</th><th>Kâr oranı</th><th title="Closing line value: kaydedilen oran / kapanış oranı − 1">CLV</th></tr>
       ${chSummaryRow("Banko", banko)}${chSummaryRow("Sürpriz", surprise)}${chSummaryRow("Toplam", total)}${grokRows}</table>
-      <p class="muted">Her gün Banko ve Sürpriz kuponun her birine ${h.stake} TL, kaydedilen oranla; yalnız sonuçlanan kuponlar sayılır. Ertelenen/iptal maç oranı 1.00 kabul edilir.${grokRows ? " Grok satırları veto sonrası alternatifleri ayrı ölçer; Toplam'a dahil değildir." : ""}</p></div>
+      <p class="muted">Her gün Banko ve Sürpriz kuponun her birine ${h.stake} TL, kaydedilen oranla; yalnız sonuçlanan kuponlar sayılır. Ertelenen/iptal maç oranı 1.00 kabul edilir. <b>CLV</b>: kaydedilen oranın maç öncesi son iddaa oranına göre farkı; sürekli pozitifse seçimler piyasadan önce doğru yönü buluyor demektir ve kâr küçük örneklemde şansa bağlı kalsa da bu gösterge güvenilirdir.${grokRows ? " Grok satırları veto sonrası alternatifleri ayrı ölçer; Toplam'a dahil değildir." : ""}</p></div>
     <div class="card"><h3>Günlük liste</h3>${h.days.map((d) => `<div class="ch-day"><div class="row-between"><b>${fmtDay(d.date + "T12:00:00Z")}</b><span class="${chSign(d.profit)}">${chTL(d.profit)}</span></div>${chCoupon("banko", d.banko)}${chCoupon("surprise", d.surprise)}${grokDay(d)}</div>`).join("")}
       ${h.total_days > h.days.length ? `<p class="muted">Son ${h.days.length} gün gösteriliyor (toplam ${h.total_days}).</p>` : ""}</div>`;
 }

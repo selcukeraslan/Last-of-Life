@@ -10,12 +10,14 @@ from urllib.request import Request, urlopen
 
 from fastapi import HTTPException
 from . import research_context, research_planner, research_service, research_store
-from .model import coupons
+from .model import coupon_history, coupons
 from .research_trio import select
 from .quote_provenance import timestamp
 
 IDENTITY_PROVIDER = 'last-of-life'
 IDENTITY_REASON = 'auto: exact source id, no name matching (RESEARCH_AUTO_IDENTITY=1)'
+# Araştırma önceliği: yayımlanan Banko bacakları, sonra Sürpriz, sonra alternatifler (günde 3 iş sınırı).
+COUPON_PRIORITY = coupon_history.KINDS
 
 
 def identity_enabled():
@@ -95,12 +97,61 @@ def check_configuration(env=os.environ):
     return problems
 
 
-def _research_picks(entries, at):
-    """Prefer a priced trio; otherwise research the strongest distinct eligible matches.
+def research_id(pick):
+    """Queue id of a coupon leg: fixture id for modelled leagues, `iddaa:<event>` for bulletin-only legs."""
+    mid = str(pick.get('id') or '')
+    if not mid or mid.startswith('iddaa:'):
+        return mid
+    small = (pick.get('small_league') or pick.get('market_only') or pick.get('probability_source') == 'iddaa_market'
+             or str(pick.get('league') or '').startswith('small:'))
+    return 'iddaa:' + mid if small else mid
+
+
+def coupon_legs(built, at):
+    """Distinct upcoming legs of the day's coupons in research priority order.
+
+    Published Banko legs come first, then Sürpriz, then each kind's alternatives;
+    the planner and the DB guard still cap the day at three full jobs.
+    """
+    ordered = [(kind, (built or {}).get(kind) or {}) for kind in COUPON_PRIORITY]
+    for kind in COUPON_PRIORITY:
+        ordered += [(f'{kind}_alternatif_{i + 1}', c) for i, c in enumerate((built or {}).get(f'{kind}_alternatives') or [])]
+    seen, legs = set(), []
+    for label, coupon in ordered:
+        for pick in coupon.get('picks') or []:
+            mid = research_id(pick)
+            kickoff = timestamp(pick.get('kickoff'))
+            if not mid or mid in seen or not kickoff or kickoff <= at:
+                continue
+            seen.add(mid)
+            legs.append({'id': mid, 'coupon': label})
+    return legs
+
+
+def published_coupons(day):
+    """Today's coupons as the site publishes them: frozen records win over a fresh build (read-only)."""
+    built = coupons.build_coupons(day)
+    try:
+        from .db import session
+        with session() as conn:
+            for kind in COUPON_PRIORITY:
+                saved = coupon_history.load_saved(conn, day.isoformat(), kind)
+                if saved:
+                    built[kind] = saved
+    except Exception as exc:  # kayıt okunamazsa canlı seçim yeterlidir
+        print(f'Yayımlanmış kupon okunamadı, canlı seçim kullanılıyor: {type(exc).__name__}', flush=True)
+    return built
+
+
+def _research_picks(entries, at, built=None):
+    """Research the published coupons' legs; fill remaining slots from the priced trio or strongest matches.
 
     A fallback is a research shortlist, NOT a published coupon or a probability
     adjustment. The database planner and guard still decide whether to enqueue.
     """
+    legs = coupon_legs(built, at)
+    if legs:
+        return legs, 'published_coupons'
     trio = select(entries, now=at)
     if trio['picks']:
         return trio['picks'], 'priced_trio'
@@ -135,13 +186,14 @@ def _research_picks(entries, at):
     return [{'id': mid} for _, _, mid in ranked[:3]], 'research_fallback'
 
 
-def enqueue_candidates(owner, entries, *, at=None):
+def enqueue_candidates(owner, entries, *, at=None, built=None):
     if not re.fullmatch(r'[A-Za-z0-9_-]{1,64}', owner):
         raise ValueError('Invalid research owner')
     if not research_store.postgres():
         raise RuntimeError('Guarded PostgreSQL queue required')
     at = at or datetime.now(timezone.utc)
-    picks, selection_mode = _research_picks(entries, at)
+    picks, selection_mode = _research_picks(entries, at, built)
+    labels = {str(p['id']): p.get('coupon') for p in picks}
     contexts = []
     with research_store.session() as conn:
         jobs = [dict(row) for row in conn.execute(
@@ -161,14 +213,17 @@ def enqueue_candidates(owner, entries, *, at=None):
             identities = register_identities(conn, [p for p in contexts if str(p['match']['id']) in chosen])
     results = []
     for candidate in proposed:
+        row = {'match_id': candidate['match_id']}
+        if labels.get(str(candidate['match_id'])):
+            row['coupon'] = labels[str(candidate['match_id'])]
         try:
             job = research_service.enqueue(owner, candidate['match_id'], 'full', candidate['deadline'], 'auto-full-v1')
-            results.append({'match_id': candidate['match_id'], 'status': job['status']})
+            results.append({**row, 'status': job['status']})
         except HTTPException as exc:
             if exc.status_code != 409:
                 raise
             detail = exc.detail if isinstance(exc.detail, dict) else {}
-            results.append({'match_id': candidate['match_id'], 'status': 'skipped', 'reason': detail.get('code', 'conflict')})
+            results.append({**row, 'status': 'skipped', 'reason': detail.get('code', 'conflict')})
     return {'selected': len(picks), 'selection_mode': selection_mode, 'resolved': len(contexts),
             'identities_registered': identities, 'results': results}
 
@@ -188,7 +243,7 @@ def main(argv=()):
         raise RuntimeError('RESEARCH_DATABASE_URL and guarded PostgreSQL queue required')
     owner = os.environ.get('RESEARCH_AUTO_OWNER', '')
     day = datetime.now(research_planner.TZ).date()
-    output = enqueue_candidates(owner, coupons._day_entries(day))
+    output = enqueue_candidates(owner, coupons._day_entries(day), built=published_coupons(day))
     output['grok_bot'] = notify_grok_bot(output)
     print(json.dumps(output, ensure_ascii=False))
     return 0

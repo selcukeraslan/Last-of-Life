@@ -147,6 +147,26 @@ test("grok verdicts render as badges with escaped reason and only http(s) source
   assert.doesNotMatch(CouponView.grokBadge({ grok_verdict: "veto", grok_sources: ["javascript:alert(1)"] }), /href/);
 });
 
+test("research notes render as a compact badge with escaped findings and never touch odds or probability", () => {
+  const note = { report_id: "r1", findings_count: 4, lineup_status: "official", sources: 15, summary: "Espanyol'da <iki> eksik",
+    findings: [{ category: "injury", status: "confirmed", statement: "Stoper <sakat>", team: "Espanyol" }, { category: "news", status: "reported", statement: "Genel haber" }],
+    risks: ["Rotasyon riski"] };
+  const html = CouponView.couponCard(coupon("banko", { publication: "published", picks: [pick({ research: note, odds: 1.85, p: 0.5 })], researched_picks: 1 }), "Banko", "b-good");
+  assert.match(html, /🔎 Araştırma: 4 bulgu \(1 doğrulanmış\)/);
+  assert.match(html, /b-good[^>]*>kadro: resmî/);
+  assert.match(html, /<summary>Espanyol&#39;da &lt;iki&gt; eksik<\/summary>/);
+  assert.match(html, /sakatlık · doğrulandı<\/span> <b>Espanyol<\/b>: Stoper &lt;sakat&gt;/);
+  assert.match(html, /risk<\/span> Rotasyon riski/);
+  assert.match(html, /15 kaynak/);
+  assert.match(html, /1\.85/);
+  assert.match(html, /50%/);
+  assert.equal(CouponView.researchBadge({}), "");
+  assert.equal(CouponView.researchBadge({ research: "x" }), "");
+  const bare = CouponView.researchBadge({ research: { findings_count: 0, lineup_status: "unknown", findings: [], risks: [] } });
+  assert.match(bare, /0 bulgu/);
+  assert.doesNotMatch(bare, /details|kadro/);
+});
+
 test("grok audit card summarises verdicts, swaps and renders the replacement coupon", () => {
   assert.equal(CouponView.grokAuditCard({ grok_audit: null }), "");
   assert.equal(CouponView.grokAuditCard(null), "");

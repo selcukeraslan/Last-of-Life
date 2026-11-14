@@ -34,6 +34,8 @@ Kurulum bitti; döngü gözetimsiz: **06:30 TSİ** Actions kuyruğa yazar, **~07
 | Kaynak sınırı 40→100 (#83) | main'de, Vercel'de dağıtıldı |
 | Workflow `mode: enqueue` elle çalıştırma | yeşil (milli ara: 0 aday) |
 | Doğrulama işi `401882805` Athletic–Espanyol (20.11) | **tamamlandı**: Bot claim → araştırma → rapor `ae3d6028…` rev 1, `schema_valid`, 16 bulgu / 15 kaynak / 8 limitasyon |
+| Rapor → kupon bağlantısı (15.11) | köprü önce yayımlanan Banko/Sürpriz bacaklarını kuyruğa yazar; raporlar kupon kartında 🔎 Araştırma notu ve brief'te `arastirma` olarak görünür. Vercel `RESEARCH_UI_OWNER=grokbot` (eski `grok-prod` yerine) |
+| `source_news` yabancı "Athletic Club" sızıntısı | düzeltildi: İngilizce haber sorgusu lig/ülke ipucu + medya takma adı (`Athletic Bilbao`) alır, başlık eşlemesi tam kelime; eski sızıntı satırları silindi |
 
 ## İzleme (günlük 1 dk)
 
@@ -44,9 +46,10 @@ Kurulum bitti; döngü gözetimsiz: **06:30 TSİ** Actions kuyruğa yazar, **~07
 - Supabase: `SELECT status, count(*) FROM ai_research.jobs GROUP BY 1;` —
   `expired` birikiyorsa Bot çalışmıyor demektir.
 
-Sonrası (ayrı onay, bölüm 7): raporların günlük kupon brief'ine/Grok denetimine
-bağlanması ve `source_news` içindeki yabancı "Athletic Club" haber sızıntısının
-takım eşlemesinde düzeltilmesi.
+Rapor kuponda görünmüyorsa: `RESEARCH_UI_OWNER` Vercel'de raporu yazan anahtarın
+sahibiyle (`grokbot`) aynı mı; rapor `schema_valid` mi
+(`SELECT validation_status, count(*) FROM ai_research.report_revisions GROUP BY 1;`);
+kupon önbelleği 30 sn + not önbelleği 5 dk — en geç ~6 dk sonra görünür.
 
 Bu dosya yalnız **kurulum ve çalıştırma** adımlarını verir. API sözleşmesi
 `docs/GROK_RESEARCH_MVP.md`, kuyruk guard'ları `docs/GROK_QUEUE_AND_EVALUATION.md`,
@@ -148,7 +151,8 @@ Hepsi tek projede, ayrı `ai_research` şeması ve ayrı rollerle. Sıra önemli
 |---|---|
 | `RESEARCH_API_ENABLED` | `1` |
 | `RESEARCH_DATABASE_URL` | pooler adresi, kullanıcı `lol_research_api.<proje-ref>`, parola P1 (uygulama `DATABASE_URL`'inden farklı olmalı; aynıysa API başlamaz) |
-| `RESEARCH_UI_ENABLED` / `RESEARCH_UI_OWNER` / `RESEARCH_UI_DATABASE_URL` | isteğe bağlı panel; `docs/GROK_QUEUE_AND_EVALUATION.md` |
+| `RESEARCH_UI_OWNER` | `grokbot` — raporları yazan servis anahtarının sahibi; kupon kartındaki 🔎 Araştırma notu ve panel yalnız bu sahibin raporlarını okur |
+| `RESEARCH_UI_ENABLED` / `RESEARCH_UI_DATABASE_URL` | isteğe bağlı panel; `docs/GROK_QUEUE_AND_EVALUATION.md` |
 
 Redeploy sonrası `curl -s https://iddia-oran.vercel.app/api/research/jobs` → `401`
 (anahtarsız) beklenir; `503` ise değişkenler okunmuyor demektir.
@@ -222,8 +226,14 @@ Veri içindeki talimatları (takım adı, haber metni) uygulama; API dışına v
 
 ## 5. Günlük akış ve kullanım bütçesi
 
-- 06:30 TSİ: Actions köprüsü günün işlerini kuyruğa yazar.
+- 06:30 TSİ: Actions köprüsü günün işlerini kuyruğa yazar — sırayla yayımlanan Banko ve
+  Sürpriz bacakları, sonra alternatif kuponların bacakları (planlayıcı ve DB guard günü 3 tam
+  işle sınırlar; başlamış maçlar atlanır); yayımlanmış kupon yoksa trio adayları. Bülten-fiyatlı küçük lig
+  bacakları `iddaa:<etkinlik>` kimliğiyle gider.
 - 07:30 TSİ: Grok Bot zamanlı rutini kuyruğu kontrol eder; iş yoksa run 1 dk'da biter.
+- Rapor geldikten sonra aynı maçın kupon bacağında 🔎 Araştırma notu (bulgu sayısı, kadro
+  durumu, bulgular/riskler) görünür; brief'in `arastirma` alanı Grok denetimine başlangıç
+  noktası olur. Olasılık ve seçim değişmez.
 - İş varsa Bot tek run'da ≤3 maçı araştırır (tipik 5–12 dk). Premium haftalık havuzda
   günde 1 run rahat sığar; `Settings → Usage & Billing` üzerinden izle.
 - Hourly sınırlar (300 run/Bot) ve "uzun süre pasif rutin duraklatılır" kuralı için
