@@ -149,7 +149,8 @@ başladıktan sonra `iddaa_odds_history` (dondurmada saklanan etkinlik kimliğiy
 Web ve Telegram günün ilk kaydedilen Banko/Sürpriz kuponunu ortak kayıttan okur. Her kaydın
 `coupon_id` / `published_at` bilgisi vardır; sonradan hesaplanan alternatifler arayüzde ayrı etiketlenir.
 Otomatik kuponlarda yalnız tam maç skoruyla sonuçlandırılabilen pazarlar kullanılır; ilk yarı ve handikap
-pazarları otomatik seçilmez. Geçmiş ve Telegram aynı sonuç/iptal kurallarını kullanır: ertelenmiş/iptal
+pazarları otomatik seçilmez. Geçmiş ve Telegram aynı sonuç/iptal kurallarını ve aynı skor kaynaklarını kullanır
+(ESPN eşleşmesi olmayan bülten bacakları için iddaa canlı sonuç servisi): ertelenmiş/iptal
 durumu bir gün sonra, sonuç alınamayan maç yedi gün sonra iptal sayılır. Eski motorun `Handikap L S` seçimleri
 (çizgi ev golüne eklenir, sonra 1/X/2 okunur) skorla sonuçlanır; skorla okunamayan başka bir eski pazar
 yedi günlük süre aşımıyla iptal olur, hemen iade sayılmaz.

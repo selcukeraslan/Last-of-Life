@@ -24,7 +24,8 @@ from datetime import date, datetime, timedelta, timezone
 from .db import init_db, session
 from .model.coupons import TZ, build_coupons
 from .model.settlement import outcome, selection_state, VOID_AFTER_DAYS
-from .model.coupon_history import daily_coupons
+from .model.coupon_history import daily_coupons, iddaa_results, _event_ids
+from .scrapers import iddaa
 
 API_URL = "https://api.telegram.org/bot{token}/{method}"
 MORNING_START_HOUR = 9   # Türkiye saati: kupon bu saatten önce gönderilmez
@@ -276,7 +277,39 @@ def post_daily_coupons(now: datetime, send, force: bool = False, day: date | Non
     return "kupon: gönderildi" if sent else "kupon: başka çalıştırma gönderiyor/gönderdi"
 
 
-def post_results(now: datetime, send) -> list[str]:
+def _match_results(conn, day: str, coupons: list[dict], now: datetime, fetch_results) -> dict[str, dict]:
+    """Kupon bacaklarının skorları: önce ESPN (matches); eşleşmesi olmayan bülten bacakları iddaa canlı
+    sonuçlarıyla tamamlanır (bkz. coupon_history.iddaa_results). Dönüş {seçim_id: matches satırı}."""
+    ids = sorted({str(p["id"]) for c in coupons for p in c["picks"]})
+    marks = ",".join("?" for _ in ids)
+    results = {r["id"]: dict(r) for r in conn.execute(
+        f"SELECT id, completed, home_goals, away_goals, status FROM matches WHERE id IN ({marks})", ids)}
+    rows = [{"kickoff": p["kickoff"], "completed": results.get(str(p["id"]), {}).get("completed")}
+            for c in coupons for p in c["picks"]]
+    scores = iddaa_results(rows, fetch_results, now)
+    cache = {}
+    for c in coupons:
+        for p in c["picks"]:
+            pid = str(p["id"])
+            if not scores or results.get(pid, {}).get("completed"):
+                continue
+            event_id = _event_ids(conn, cache, day, c["type"]).get((pid, p["market"])) or pid
+            if score := scores.get(str(event_id)):
+                results[pid] = {"id": pid, "completed": 1, "home_goals": score[0], "away_goals": score[1],
+                                "status": "FT"}
+    return results
+
+
+def post_results(now: datetime, send, fetch_results=None) -> list[str]:
+    """Gönderilmiş kuponların sonuçlarını yanıt olarak yazar. fetch_results (gün → {etkinlik: skor}) verilirse
+    ESPN'de olmayan bülten bacakları iddaa skoruyla değerlendirilir; aynı gün bir kez çekilir."""
+    fetched = {}
+
+    def fetch(day):
+        if day not in fetched:
+            fetched[day] = fetch_results(day)
+        return fetched[day]
+
     since = (now.astimezone(TZ).date() - timedelta(days=RESULT_LOOKBACK_DAYS)).isoformat()
     with session() as conn:
         pending = conn.execute(
@@ -286,11 +319,8 @@ def post_results(now: datetime, send) -> list[str]:
     out = []
     for row in pending:
         coupons = json.loads(row["payload"])
-        ids = sorted({str(p["id"]) for c in coupons for p in c["picks"]})
         with session() as conn:
-            marks = ",".join("?" for _ in ids)
-            results = {r["id"]: dict(r) for r in conn.execute(
-                f"SELECT id, completed, home_goals, away_goals, status FROM matches WHERE id IN ({marks})", ids)}
+            results = _match_results(conn, row["day"], coupons, now, fetch if fetch_results else None)
         settled = {}
         for c in coupons:
             s = settle_coupon(c, results, now)
@@ -353,7 +383,7 @@ def main(argv=None) -> int:
     lines, failed = [], False
     steps = [lambda: [post_daily_coupons(now, send, force=args.force,
                                          day=date.fromisoformat(args.day) if args.day else None)],
-             lambda: post_results(now, send),
+             lambda: post_results(now, send, fetch_results=iddaa.fetch_results),
              lambda: post_grok_audits(now, send)]
     for step in steps:  # biri hata verse de diğeri denenir
         try:
