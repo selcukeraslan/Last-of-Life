@@ -71,6 +71,9 @@ async function refreshLive() {
       const item=state.matchList?.find(item=>String(item.id) === card.dataset.id);
       const m = state.live.get(card.dataset.id) || item?.live_result, time = card.querySelector(".time");
       if (time && m) time.innerHTML = liveBadge(m);
+      const outcome=item && Simple.cardOutcome({...item,live_result:m});
+      card.classList.remove("outcome-won","outcome-lost","outcome-winning","outcome-losing");
+      if (outcome) card.classList.add("outcome-"+outcome);
       const block=card.querySelector('.m-pick > .v3-pick');
       const started=item && Date.parse(item.kickoff)<=Date.now();
       if(block && (m || (started && item.pick))) {
@@ -155,7 +158,8 @@ async function loadLeagues() {
 function matchCard(m) {
   const detailId = m.id;
   const live = state.live.get(String(m.id));
-  return `<div class="card match" data-home="${esc(m.home)}" data-away="${esc(m.away)}" data-id="${esc(m.id)}" data-match-id="${esc(detailId)}" data-event-id="${esc(m.iddaa_event_id || (m.small_league ? m.id : ""))}" data-competition-id="${esc(m.competition_id ?? "")}" role="button" tabindex="0" aria-label="${esc(m.home)} - ${esc(m.away)} maç detayı">
+  const outcome = Simple.cardOutcome({...m,live_result:live || m.live_result});
+  return `<div class="card match${outcome ? " outcome-"+outcome : ""}" data-home="${esc(m.home)}" data-away="${esc(m.away)}" data-id="${esc(m.id)}" data-match-id="${esc(detailId)}" data-event-id="${esc(m.iddaa_event_id || (m.small_league ? m.id : ""))}" data-competition-id="${esc(m.competition_id ?? "")}" role="button" tabindex="0" aria-label="${esc(m.home)} - ${esc(m.away)} maç detayı">
     <div class="m-head">
       <div class="m-teams">
         <div class="m-team">${window.Extras ? Extras.star(m.home) : ""}${img(m.home_logo)}<b>${esc(m.home)}</b></div>
