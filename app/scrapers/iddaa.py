@@ -381,6 +381,49 @@ def fetch_results(date: str, timeout: int = 10) -> dict[str, tuple[int, int]]:
     return parse_results(fetch_json(RESULTS_URL.format(date=date), timeout=timeout, retries=2))
 
 
+# iddaa maç durumu (sitenin kendi enum'u): canlı akışta gösterilecek ara/oyun durumları.
+LIVE_LABELS = {2: None, 3: None, 7: "UZ", 9: "UZ", 4: "İY", 49: "Ara", 8: "UZ İY", 35: "UZ öncesi",
+               11: "PEN", 36: "PEN", 60: "UZ", 13: "Ertelendi", 25: "Durdu", 63: "Durdu", 67: "Durdu"}
+RESULT_LABELS = {6: "MS", 10: "UZT", 12: "PEN"}
+
+
+def parse_live(payload: dict) -> list[dict]:
+    """Canlı ve biten etkinlikleri live.py satır biçiminde döndürür; kimlik bülten etkinlik kimliğidir.
+
+    Biten maçta yalnız sonuçlandırmada kullanılan normal süre skoru gösterilir."""
+    data = payload.get("data") or {}
+    scores, finals = data.get("sc") or {}, parse_results(payload)
+    rows = []
+    for event in data.get("events") or []:
+        eid = str(event.get("eventId"))
+        score = scores.get(eid) or {}
+        status = score.get("s")
+        home, away = score.get("ht") or {}, score.get("at") or {}
+        if status in RESULT_FINISHED:
+            if eid not in finals:
+                continue
+            goals, state, minute = finals[eid], "post", RESULT_LABELS[status]
+        elif status in LIVE_LABELS and home.get("c") is not None and away.get("c") is not None:
+            goals, state = (int(home["c"]), int(away["c"])), "in"
+            label = LIVE_LABELS[status]
+            minute = f"{score['min']}'" if score.get("min") and label in (None, "UZ") else label or "Canlı"
+            if label == "UZ" and score.get("min"):
+                minute += " UZ"
+        else:
+            continue
+        kickoff = event.get("eventDate")
+        rows.append({"id": eid, "league": "iddaa", "home": event.get("homeTeam") or "",
+                     "away": event.get("awayTeam") or "", "home_goals": goals[0], "away_goals": goals[1],
+                     "minute": minute, "period": status, "state": state, "source_key": "iddaa",
+                     "kickoff": datetime.fromtimestamp(kickoff, timezone.utc).isoformat() if kickoff else None})
+    return rows
+
+
+def fetch_live(date: str, timeout: int = 4) -> list[dict]:
+    """TSİ günü için iddaa canlı/biten skor satırları; canlı istek bekletilmez (tek deneme)."""
+    return parse_live(fetch_json(RESULTS_URL.format(date=date), timeout=timeout, retries=1))
+
+
 def small_league_key(country: str, competition: str) -> str:
     """Bültendeki ana lig dışı organizasyon için kararlı ve güvenli sınıflandırma anahtarı."""
     def slug(value):

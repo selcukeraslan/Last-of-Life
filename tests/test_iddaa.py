@@ -176,3 +176,19 @@ class ParseResultsTests(unittest.TestCase):
         }}}
         self.assertEqual(parse_results(payload), {"1": (2, 2), "2": (1, 1), "3": (0, 2)})
         self.assertEqual(parse_results({"isSuccess": True, "data": {}}), {})
+
+    def test_parse_live_marks_live_and_finished_events_with_regular_time_score(self):
+        from app.scrapers.iddaa import parse_live
+        events = [{"eventId": i, "eventDate": 1794700000, "homeTeam": "H", "awayTeam": "A"} for i in range(1, 6)]
+        payload = {"data": {"events": events, "sc": {
+            "1": {"s": 3, "ht": {"c": 2}, "at": {"c": 1}, "min": 67},                       # 2. yarı
+            "2": {"s": 4, "ht": {"c": 0}, "at": {"c": 0}, "min": 45},                       # devre arası
+            "3": {"s": 10, "ht": {"r": 1, "c": 2}, "at": {"r": 1, "c": 1}},                 # uzatmada bitti
+            "4": {"s": 6, "ht": {"c": 7}, "at": {"c": 7}, "min": 103},                      # güvenilmez final: atla
+        }}}
+        rows = {r["id"]: r for r in parse_live(payload)}
+        self.assertEqual(set(rows), {"1", "2", "3"})
+        self.assertEqual((rows["1"]["state"], rows["1"]["minute"], rows["1"]["home_goals"]), ("in", "67'", 2))
+        self.assertEqual(rows["2"]["minute"], "İY")
+        self.assertEqual((rows["3"]["state"], rows["3"]["minute"], rows["3"]["home_goals"]), ("post", "UZT", 1))
+        self.assertEqual(rows["1"]["kickoff"], "2026-11-14T23:46:40+00:00")

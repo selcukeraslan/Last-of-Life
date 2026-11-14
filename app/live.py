@@ -1,4 +1,4 @@
-"""Short lived ESPN live scoreboard cache for serverless requests."""
+"""Short lived ESPN + iddaa live scoreboard cache for serverless requests."""
 import time
 import threading
 from concurrent.futures import ThreadPoolExecutor, wait
@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from .config import LEAGUES, USER_AGENT
 
-_CACHE_SECONDS = 45
+_CACHE_SECONDS = 25
 _cache = {"at": 0.0, "leagues": {}, "sources": {}, "updated_at": None, "day": None}
 _refresh_lock = threading.Lock()
 LIVE_DEADLINE_SECONDS = 7
@@ -44,6 +44,10 @@ def _parse_event(event, league):
 
 
 def _fetch(league, day):
+    if league == 'iddaa':
+        # Bulletin event ids are iddaa ids: small leagues get live scores without name matching.
+        from .scrapers.iddaa import fetch_live
+        return {'rows': [{**m, 'id': 'iddaa:'+m['id']} for m in fetch_live(day.isoformat())]}
     # Daily scoreboards support a single date. A separate all_previous request
     # covers matches after midnight Istanbul but still on the previous UTC day.
     if league == 'all_previous':
@@ -64,6 +68,7 @@ def _aliases(rows, day):
     from .quote_provenance import timestamp
     from .scrapers.iddaa import team_similarity
     by_id = {m['id']:m for m in rows}
+    rows = [m for m in rows if m.get('source_key') != 'iddaa']
     with session() as conn:
         events = bulletin_archive.load_day(conn, day)
         for row in conn.execute('SELECT * FROM iddaa_events'):
@@ -73,6 +78,16 @@ def _aliases(rows, day):
         for eid, event in events.items():
             kickoff = timestamp(event.get('kickoff'))
             if not kickoff or kickoff.astimezone(ZoneInfo('Europe/Istanbul')).date() != day:
+                continue
+            key='iddaa:'+str(eid)
+            own = by_id.get(key)
+            if own and own.get('source_key') == 'iddaa':
+                mapped={**own,'league':event['league'],'home':event['home'],'away':event['away']}
+                rows.append(mapped)
+                if str(eid) not in by_id:
+                    rows.append({**mapped,'id':str(eid)})
+                if mapped['state']=='post':
+                    saved[key]=mapped
                 continue
             candidates = []
             for score in by_id.values():
@@ -87,7 +102,6 @@ def _aliases(rows, day):
             if not candidates or (len(candidates)>1 and candidates[0][0]-candidates[1][0]<.1):
                 continue
             score=candidates[0][1]
-            key='iddaa:'+str(eid)
             mapped={**score,'id':key,'provider_id':score['id'],'league':event['league']}
             rows.append(mapped)
             if str(eid) not in by_id:
@@ -131,7 +145,7 @@ def get_live_snapshot(day=None):
     try:
         if _cache.get('day')!=day:
             _cache.update(day=day, at=0., leagues={}, sources={}, updated_at=None)
-        futures = {pool.submit(_fetch, league, day): league for league in ['all','all_previous',*LEAGUES]}
+        futures = {pool.submit(_fetch, league, day): league for league in ['iddaa','all','all_previous',*LEAGUES]}
         done, pending = wait(futures, timeout=LIVE_DEADLINE_SECONDS)
         now = datetime.now(timezone.utc).isoformat()
         successes = 0
@@ -141,7 +155,7 @@ def get_live_snapshot(day=None):
                 if future not in done:
                     raise TimeoutError("live deadline")
                 data = future.result()
-                rows = [_parse_event(e, league) for e in data.get("events", [])]
+                rows = data['rows'] if 'rows' in data else [_parse_event(e, league) for e in data.get("events", [])]
                 _cache["leagues"][league] = [m for m in rows if m]
                 _cache["sources"][league] = {"status": "success", "last_success_at": now}
                 successes += 1
