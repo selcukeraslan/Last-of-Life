@@ -519,7 +519,7 @@ setInterval(() => {
   if (!document.hidden) pollUpdate().catch(showLastUpdate);
   else showLastUpdate();
 }, 30000);
-setInterval(() => { if (!document.hidden) refreshLive(); }, 60000);
+setInterval(() => { if (!document.hidden) refreshLive(); }, 30000);
 document.addEventListener("visibilitychange", () => { if (!document.hidden) refreshLive(); });
 (async () => {
   refreshLive(); // Canlı skor ağı bültenin ilk açılışını bekletmez.

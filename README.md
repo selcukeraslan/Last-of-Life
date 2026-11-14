@@ -285,6 +285,8 @@ GitHub işi adımlar başlamadan ödeme/harcama limiti nedeniyle reddedilirse, h
   başlamış maçlar ve ertesi günün gece yarısı listeye alınmaz.
 - Canlı skorlar sınırlı paralellik ve 7 saniyelik toplam bütçeyle çekilir. Lig hatasında son iyi veri ve
   gerçek son başarı zamanı korunur; arayüz güncel olmayan skoru belirtir.
+  ESPN'e ek olarak iddaa canlı sonuç servisi bülten etkinlik kimliğiyle okunur; küçük lig/bülten maçları
+  isim eşleşmesi gerekmeden canlı skor (dakika, İY, UZ/PEN) ve normal süre finali alır. Önbellek 25 sn, arayüz 30 sn'de yeniler.
 - `POST /api/backtest` yönetici isteğini DB kuyruğuna kaydeder. `backtest.yml` saatte bir
   kuyruğu kontrol eder; boş kuyrukta 15 dakikada bir runner açılmaz. İş kimliği, hata/başarı ve süre sınırı DB'dedir. `GET /api/backtest` durumunu okur.
   Yerelde işleyici: `python -m app.backtest_jobs`. Geçmiş testte eş zamanlı/son 3 saatte başlamış maçlar

@@ -41,8 +41,18 @@ class BulletinLiveTests(unittest.TestCase):
         with patch.object(live,'_cache',cache),patch.object(live,'LEAGUES',{}),patch.object(live,'_fetch',return_value={'events':[]}) as fetch:
             live.get_live_snapshot(date(2026,11,9))
             live.get_live_snapshot(date(2026,11,10))
-            self.assertEqual(fetch.call_count,4)
+            self.assertEqual(fetch.call_count,6)
             self.assertEqual(cache['day'],date(2026,11,10))
+
+    def test_iddaa_row_scores_bulletin_event_by_id_and_persists_final(self):
+        own={**self.score,'id':'iddaa:source','source_key':'iddaa','home':'X','away':'Y',
+             'state':'post','minute':'MS','home_goals':2,'away_goals':2}
+        rows=live._aliases([own,{**own,'id':'iddaa:other'}],self.day)
+        self.assertEqual({r['id'] for r in rows},{'source','iddaa:source'})
+        self.assertEqual(next(r for r in rows if r['id']=='source')['home'],'Kristiansund')
+        from app.results_api import results
+        row=results(['iddaa:source'])['matches']['iddaa:source']
+        self.assertEqual((row['state'],row['home_goals'],row['away_goals']),('post',2,2))
 
     def test_saved_final_does_not_settle_a_rescheduled_fixture(self):
         live._aliases([{**self.score,'state':'post','minute':'MS'}],self.day)
