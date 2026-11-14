@@ -6,14 +6,16 @@ from ..quote_provenance import fresh, timestamp
 from . import predict as P
 
 
-def comparison(item, source='iddaa', group=None, book=None):
+def comparison(item, source='iddaa', group=None, book=None, outcomes=2):
+    """Model-piyasa karşılaştırma alanları; outcomes = marjı temizlenen gruptaki seçenek sayısı."""
+    from .blend import devig_method
     model, market = item.get('model_p'), item.get('market_p')
     valid = lambda p: isinstance(p,(int,float)) and not isinstance(p,bool) and math.isfinite(p) and 0<=p<=1
     gap = abs(model-market)*100 if valid(model) and valid(market) else None
     return {'model_market_gap_pp':round(gap,2) if gap is not None else None,
             'disagreement_review_required':gap is not None and gap >= MODEL.get('disagreement_review_pp',20),
             'market_probability_source':source if valid(market) else None,
-            'devig_method':'multiplicative_normalization' if valid(market) else None,
+            'devig_method':devig_method(outcomes) if valid(market) else None,
             'devig_group':group, 'book_sum':round(book,6) if book is not None else None}
 
 

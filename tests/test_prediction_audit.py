@@ -69,7 +69,8 @@ class DecisionAudit(unittest.TestCase):
         self.assertEqual(datetime.fromisoformat(event['kickoff']).hour,18)
         odds=event['odds'];keys=[f'Handikap -2 {v}' for v in ('1','X','2')]
         probs=blend.devig([odds[k] for k in keys])
-        self.assertAlmostEqual(probs[2],.3701,places=3)
+        self.assertAlmostEqual(sum(probs),1,places=6)
+        self.assertAlmostEqual(probs[2],.3752,places=3)  # güç yöntemi; orantılı bölme .3701 verirdi
         extra=extra_markets.for_match(2.1,.9,odds)
         self.assertAlmostEqual(sum(extra[k]['p'] for k in keys),1,places=3)
         self.assertEqual(extra[keys[2]]['settlement_definition']['market_type'],'three_way_european_handicap')

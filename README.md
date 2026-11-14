@@ -71,8 +71,12 @@ UEFA Şampiyonlar Ligi, UEFA Avrupa Ligi (`app/config.py` → `LEAGUES`).
 
 ## iddaa oranlarıyla harmanlama
 
-`app/model/blend.py`: iddaa.com oranından marj temizlenir (1X2 üçlü, Alt/Üst 1.5/2.5/3.5 ve KG ikili gruplar:
-`1/oran`, grup toplamına bölünür) ve model olasılığıyla `p = (1-w)·p_model + w·p_piyasa` harmanlanır;
+`app/model/blend.py`: iddaa.com oranından marj temizlenir ve model olasılığıyla `p = (1-w)·p_model + w·p_piyasa`
+harmanlanır. İkili gruplarda (Alt/Üst 1.5/2.5/3.5, KG) `1/oran` grup toplamına bölünür; üçlü 1X2'de **güç yöntemi**
+kullanılır (`(1/oran)^k`, Σ=1; Clarke–Kovalchik–Reid 2017): iddaa'nın 1X2 marjı ≈%14 olduğundan orantılı bölme
+favoriyi sistematik düşük gösterir (kendi 481 maçlık kaydımızda favori bantları 6–10 puan düşük, log-loss
+0,9149→0,9092 güç yöntemiyle; ikili pazarlarda fark ölçülemedi, basit yöntem korunur). Yanıtlardaki
+`devig_method` alanı `power` / `multiplicative_normalization` olarak hangi yöntemin kullanıldığını söyler;
 `w = MODEL["market_weight"]` (`app/config.py`, varsayılan 0,75; 0 = yalnız model). Varsayılan ağırlık
 piyasaya yakındır çünkü kayıtlı maç öncesi snapshot'larda yalnız piyasa Brier'i (0,496) modelden (0,547)
 daha iyidir; `adaptive_market` lig/pazar kanıtı biriktikçe bu ağırlığı aşağı/yukarı oynatabilir. Oran

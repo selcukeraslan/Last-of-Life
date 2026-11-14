@@ -78,7 +78,7 @@ def for_match(lambda_home: float, lambda_away: float, iddaa_odds: dict | None = 
             out[key].update(model_p=out[key]['p'],market_p=round(probs[i],4) if probs else None,
                             model_assumptions='Fixed goal share; independent half score distributions; not empirically validated')
             out[key].update(comparison(out[key],group=group,
-                book=sum(1/iddaa_odds[k] for k in keys) if probs else None))
+                book=sum(1/iddaa_odds[k] for k in keys) if probs else None,outcomes=len(keys)))
     for line in half_totals:
         if float(line).is_integer():
             keys=[f'İY A{line}',f'İY Ü{line}']
@@ -99,7 +99,8 @@ def for_match(lambda_home: float, lambda_away: float, iddaa_odds: dict | None = 
                                                'rule':'Compare home_goals + home_goal_adjustment with away_goals; 1 greater, X equal, 2 smaller'},
                         model_market_gap_pp=round(abs(item['p']-market_p)*100,1) if market_p is not None else None)
             item['settlement_definition']['market_type']='three_way_european_handicap'
-            item.update(comparison(item,group='handicap_'+line,book=sum(1/(iddaa_odds or {})[key] for key in keys) if probs else None))
+            item.update(comparison(item,group='handicap_'+line,book=sum(1/(iddaa_odds or {})[key] for key in keys) if probs else None,
+                                   outcomes=len(keys)))
     for key in (iddaa_odds or {}):
         if key.startswith(("Korner ", "Kart ")):
             out[key] = {"p": None, "fair": None, "suggested": None, "model_available": False, "validation_status":"unmodelled", "settlement_definition":None}
