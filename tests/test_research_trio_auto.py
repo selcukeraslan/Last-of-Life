@@ -79,6 +79,65 @@ class TrioSelectionTests(unittest.TestCase):
         self.assertEqual(len(picks), 3)
 
 
+def leg(i, **extra):
+    return {'id': str(i), 'league': 'test', 'home': f'H{i}', 'away': f'A{i}', 'market': '1', 'odds': 1.5, 'p': .6,
+            'kickoff': (NOW + timedelta(hours=5)).isoformat(), **extra}
+
+
+class CouponLegTests(unittest.TestCase):
+    def test_published_coupon_legs_lead_in_banko_surprise_alternative_order(self):
+        built = {'banko': {'picks': [leg(1), leg(2)]}, 'surprise': {'picks': [leg(2), leg(3)]},
+                 'banko_alternatives': [{'picks': [leg(1), leg(2)]}, {'picks': [leg(4)]}],
+                 'surprise_alternatives': [{'picks': [leg(5), leg(3)]}]}
+        legs = research_auto.coupon_legs(built, NOW)
+        self.assertEqual([l['id'] for l in legs], ['1', '2', '3', '4', '5'])
+        self.assertEqual([l['coupon'] for l in legs], ['banko', 'banko', 'surprise', 'banko_alternatif_2', 'surprise_alternatif_1'])
+        picks, mode = research_auto._research_picks([entry(7), entry(8), entry(9)], NOW, built)
+        self.assertEqual(mode, 'published_coupons')
+        self.assertEqual([p['id'] for p in picks], ['1', '2', '3', '4', '5'])
+
+    def test_bulletin_only_legs_use_iddaa_queue_ids_and_started_legs_are_skipped(self):
+        started = leg(1, kickoff=(NOW - timedelta(minutes=1)).isoformat())
+        small = leg(3294853, small_league=True)
+        frozen_small = leg(3294309, probability_source='iddaa_market', league='small:aus-championship')
+        built = {'banko': {'picks': [started, small]}, 'surprise': {'picks': [frozen_small, leg(2)]}}
+        self.assertEqual([l['id'] for l in research_auto.coupon_legs(built, NOW)],
+                         ['iddaa:3294853', 'iddaa:3294309', '2'])
+        self.assertEqual(research_auto.research_id({'id': 'iddaa:5', 'small_league': True}), 'iddaa:5')
+
+    def test_empty_coupons_fall_back_to_trio(self):
+        built = {'banko': {'picks': []}, 'surprise': None, 'banko_alternatives': []}
+        picks, mode = research_auto._research_picks([entry(1), entry(2), entry(3)], NOW, built)
+        self.assertEqual(mode, 'priced_trio')
+        self.assertEqual(len(picks), 3)
+
+    def test_enqueue_reports_the_coupon_each_job_belongs_to(self):
+        executed = []
+        postgres, session, read, enqueue = guarded(executed)
+        built = {'banko': {'picks': [leg(1)]}, 'surprise': {'picks': [leg(2), leg(3)]}}
+        with postgres, session, read, enqueue as enqueue_mock, patch.dict('os.environ', {}, clear=True):
+            result = research_auto.enqueue_candidates('pilot', [], at=NOW, built=built)
+        self.assertEqual(result['selection_mode'], 'published_coupons')
+        self.assertEqual([(r['match_id'], r['coupon'], r['status']) for r in result['results']],
+                         [('1', 'banko', 'queued'), ('2', 'surprise', 'queued'), ('3', 'surprise', 'queued')])
+        self.assertEqual(enqueue_mock.call_count, 3)
+
+    def test_published_coupons_prefer_frozen_records_over_live_build(self):
+        live = {'date': '2026-11-11', 'banko': {'picks': [leg(1)]}, 'surprise': {'picks': [leg(2), leg(3)]}}
+        frozen = {'type': 'banko', 'picks': [leg(9)]}
+
+        @contextmanager
+        def session():
+            yield object()
+        with patch.object(research_auto.coupons, 'build_coupons', return_value=dict(live)), \
+             patch('app.db.session', session), \
+             patch.object(research_auto.coupon_history, 'load_saved',
+                          side_effect=lambda conn, day, kind: frozen if kind == 'banko' else None):
+            built = research_auto.published_coupons(NOW.date())
+        self.assertEqual([p['id'] for p in built['banko']['picks']], ['9'])
+        self.assertEqual([p['id'] for p in built['surprise']['picks']], ['2', '3'])
+
+
 class AutoQueueTests(unittest.TestCase):
     def test_auto_disabled_without_touching_database(self):
         out = io.StringIO()

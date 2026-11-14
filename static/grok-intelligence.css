@@ -9,6 +9,14 @@
 /* Grok kupon denetimi (coupon-view.js grokBadge/grokAuditCard, grok-audit.js) */
 .grok-verdict { margin-top: 4px; font-size: .85em; line-height: 1.4; overflow-wrap: anywhere; }
 .grok-verdict .grok-source { margin-left: 4px; }
+/* Grok Bot araştırma notu (coupon-view.js researchBadge) */
+.research-note { margin-top: 4px; font-size: .85em; line-height: 1.4; overflow-wrap: anywhere; }
+.research-note .badge + .badge { margin-left: 4px; }
+.research-note .research-details { margin-top: 2px; }
+.research-note .research-details summary { cursor: pointer; color: inherit; opacity: .85; }
+.research-note ul { margin: 4px 0; padding-left: 18px; }
+.research-note li { margin: 2px 0; }
+.research-note .research-tag { display: inline-block; padding: 0 5px; border-radius: 4px; background: rgba(127,127,127,.18); font-size: .9em; }
 .coupon-grok-warning { margin: 8px 0; }
 .grok-audit .grok-swaps { padding-left: 20px; margin: 8px 0; }
 .grok-audit-control textarea { width: 100%; box-sizing: border-box; margin: 8px 0; font: inherit; font-size: .9em; }

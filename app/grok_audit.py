@@ -20,7 +20,7 @@ from fastapi import APIRouter, HTTPException, Query, Request
 from fastapi.responses import JSONResponse, PlainTextResponse
 from pydantic import BaseModel, Field
 
-from . import auth, ops
+from . import auth, ops, research_store
 from .db import get_meta, session, set_meta
 from .model import coupon_history
 from .model.coupons import TZ, build_coupons
@@ -87,6 +87,93 @@ def _started(pick: dict, now: datetime | None) -> bool:
     return bool(now and kickoff and kickoff <= now)
 
 
+# --- Araştırma notları (Grok Bot raporları) ------------------------------------------
+RESEARCH_NOTE_TTL = timedelta(minutes=5)
+RESEARCH_FINDINGS = 6
+RESEARCH_STATUSES = ("confirmed", "reported", "conflicting", "unknown")
+RESEARCH_CATEGORIES = ("injury", "suspension", "lineup", "fixture_load", "form", "news", "other")
+_research_cache: dict = {}
+
+
+def _research_owner() -> str:
+    owner = os.environ.get("RESEARCH_UI_OWNER", "")
+    return owner if re.fullmatch(r"[A-Za-z0-9_-]{1,64}", owner) else ""
+
+
+def research_note(payload: dict, report_id: str, revision, researched_at) -> dict:
+    """Bir football-match-intel raporunun kupon bacağı için kısa, temizlenmiş özeti.
+
+    Olasılık veya karar içermez; doğrulanmış sakatlık/ceza/kadro bulguları öne alınır.
+    """
+    findings = []
+    for item in payload.get("findings") or []:
+        if not isinstance(item, dict) or not isinstance(item.get("statement"), str) or not item["statement"].strip():
+            continue
+        status = item.get("verification_status") if item.get("verification_status") in RESEARCH_STATUSES else "unknown"
+        category = item.get("category") if item.get("category") in RESEARCH_CATEGORIES else "other"
+        findings.append({"category": category, "status": status, "statement": _clean(item["statement"], 200),
+                         "team": _clean(item.get("team"), 60) if isinstance(item.get("team"), str) else None})
+    findings.sort(key=lambda f: (f["status"] != "confirmed", RESEARCH_CATEGORIES.index(f["category"])))
+    lineup = payload.get("lineup_assessment") if isinstance(payload.get("lineup_assessment"), dict) else {}
+    lineup_status = lineup.get("lineup_status") if lineup.get("lineup_status") in ("predicted", "official") else "unknown"
+    risks = [_clean(r, 160) for r in (payload.get("risks") or []) if isinstance(r, str) and r.strip()][:3]
+    summary = _clean(payload["summary"], 400) if isinstance(payload.get("summary"), str) else ""
+    return {"report_id": str(report_id), "revision": revision, "researched_at": researched_at,
+            "summary": summary or None, "findings": findings[:RESEARCH_FINDINGS], "findings_count": len(findings),
+            "lineup_status": lineup_status, "risks": risks,
+            "sources": len(payload["sources"]) if isinstance(payload.get("sources"), list) else 0}
+
+
+def research_notes(match_ids, now: datetime | None = None) -> dict[str, dict]:
+    """Bacak başına Grok Bot'un en güncel şema-geçerli raporu (maç id'si veya `iddaa:<id>`).
+
+    Araştırma deposu yoksa, erişilemiyorsa veya sahibi tanımsızsa boş döner; kupon yanıtı asla bozulmaz.
+    """
+    owner = _research_owner()
+    ids = tuple(sorted({str(m) for m in match_ids if m}))
+    if not owner or not ids:
+        return {}
+    now = now or _now()
+    key = (owner, ids)
+    cached = _research_cache.get(key)
+    if cached and cached[0] > now:
+        return cached[1]
+    lookup = sorted(set(ids) | {"iddaa:" + m for m in ids if not m.startswith("iddaa:")})
+    rows = []
+    try:
+        with research_store.session() as conn:
+            reports, revisions = research_store.table("reports"), research_store.table("report_revisions")
+            rows = conn.execute(
+                f"SELECT r.match_id, r.id AS report_id, v.revision, v.payload_json, v.researched_at "
+                f"FROM {reports} r JOIN {revisions} v ON v.report_id=r.id "
+                f"WHERE r.owner_id=? AND v.validation_status='schema_valid' AND r.match_id IN ({','.join('?' * len(lookup))}) "
+                "ORDER BY v.received_at DESC, v.revision DESC", (owner, *lookup)).fetchall()
+    except research_store.unavailable_errors() as exc:
+        print(f"Araştırma notları okunamadı: {type(exc).__name__}", flush=True)
+    notes = {}
+    for row in rows:
+        mid = str(row["match_id"]).removeprefix("iddaa:")
+        if mid in notes:
+            continue
+        try:
+            payload = json.loads(row["payload_json"])
+        except (TypeError, ValueError):
+            continue
+        if isinstance(payload, dict):
+            notes[mid] = research_note(payload, row["report_id"], row["revision"], row["researched_at"])
+    _research_cache.clear()
+    _research_cache[key] = (now + RESEARCH_NOTE_TTL, notes)
+    return notes
+
+
+def _annotate_research(coupon: dict | None, notes: dict[str, dict]) -> dict | None:
+    if not coupon or not notes:
+        return coupon
+    picks = [{**p, "research": notes[str(p.get("id")).removeprefix("iddaa:")]}
+             if str(p.get("id")).removeprefix("iddaa:") in notes else p for p in coupon.get("picks") or []]
+    return {**coupon, "picks": picks, "researched_picks": sum("research" in p for p in picks)}
+
+
 def _leg(pick: dict, now: datetime | None = None) -> dict:
     leg = {"match_id": str(pick.get("id")), "lig": pick.get("league_name") or pick.get("league"),
            "ev": pick.get("home"), "dep": pick.get("away"), "baslangic_tr": _tr(pick.get("kickoff")),
@@ -99,6 +186,8 @@ def _leg(pick: dict, now: datetime | None = None) -> dict:
             leg[label] = _pct(pick[key])
     if pick.get("probability_source") == "iddaa_market":
         leg["not"] = "yalnız bülten fiyatından türetilmiş olasılık; takım modeli yok"
+    if isinstance(pick.get("research"), dict):
+        leg["arastirma"] = {k: v for k, v in pick["research"].items() if k != "revision"}
     return leg
 
 
@@ -164,6 +253,7 @@ RULES = """ÇALIŞMA KURALLARI
 - Olasılık veya oran üretme, kuponu yeniden kurma. Görevin bacak bazında risk denetimi: her maç için keep / caution / veto.
 - veto yalnız güvenilir kaynakla doğrulanmış, seçimi doğrudan etkileyen bilgi için: erteleme/saha değişikliği, kilit oyuncu kesinleşmiş eksik (seçimle ilgiliyse), ilk 11 sürprizi, olağan dışı hava, ölü maç/rotasyon kanıtı.
 - caution: doğrulanmamış söylenti, kısmi bilgi, motivasyon şüphesi. keep: aksini gösteren bilgi yok.
+- Bazı bacaklarda "arastirma" alanı var: Grok Bot'un aynı maç için kaynaklı ön araştırması (bulgular, kadro durumu, riskler). Bunu başlangıç noktası al; status "confirmed" bulguları yeniden aramadan kullanabilirsin, "reported"/"unknown" olanları doğrula. Karar yine sana ait.
 - Her maç için en fazla 2 kaynak URL'si; kaynak yoksa boş liste. Erişemediğin bilgiyi "bilinmiyor" diye yaz, uydurma.
 - "durum":"başladı" olan maç/kupon zaten oynanıyor: araştırma yapma, karar yazma.
 - Kısa yaz: gerekçe ≤ 200 karakter, özet ≤ 600 karakter. Yalnız aşağıdaki JSON'u döndür, başka metin ekleme."""
@@ -421,6 +511,15 @@ def decorate(built: dict, now: datetime | None = None, conn=None) -> dict:
     if conn is None:
         with session() as inner:
             return decorate(built, now=now, conn=inner)
+    notes = research_notes(known_ids(built), now)
+    if notes:
+        for kind in COUPON_KINDS:
+            for key in (kind, f"current_{kind}"):
+                if built.get(key):
+                    built[key] = _annotate_research(built[key], notes)
+            for key in (f"{kind}_alternatives", f"current_{kind}_alternatives"):
+                built[key] = [_annotate_research(c, notes) for c in built.get(key) or []]
+    built["research"] = {"reports": len(notes)}
     audits = [load(conn, day, "daily"), load(conn, day, "lineup")]
     verdicts = _verdict_map(audits)
     for kind in COUPON_KINDS:
@@ -441,7 +540,7 @@ def decorate(built: dict, now: datetime | None = None, conn=None) -> dict:
         vetoed = [f"{p['home']} - {p['away']}" for p in published["picks"] if p.get("grok_verdict") == "veto"]
         frozen = coupon_history.load_saved(conn, day, f"{kind}_grok")
         if frozen:  # bir kez seçilen Grok alternatifi yayımlanan kupon gibi sabit kalır
-            built[f"{kind}_grok"] = _annotate({**frozen, "publication": "grok"}, verdicts)
+            built[f"{kind}_grok"] = _annotate(_annotate_research({**frozen, "publication": "grok"}, notes), verdicts)
             swaps.append({"kind": kind, "vetoed": vetoed, "coupon_id": frozen["coupon_id"]})
             continue
         replacement = None

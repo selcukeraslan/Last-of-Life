@@ -324,5 +324,90 @@ class EndpointTest(DbCase):
         self.assertEqual(coupons["grok_audit"]["vetoes"], 1)
 
 
+class ResearchNoteTest(DbCase):
+    """Grok Bot raporları kupon bacaklarına 'araştırma notu' olarak eklenir; olasılık ve karar üretmez."""
+    PAYLOAD = {"schema_version": "1.0", "summary": "  Espanyol'da  iki eksik var.\x00 ", "sources": [{"id": "s1"}, {"id": "s2"}],
+               "findings": [
+                   {"category": "news", "statement": "Genel haber", "verification_status": "reported"},
+                   {"category": "injury", "team": "Espanyol", "statement": "Stoper sakat", "verification_status": "confirmed"},
+                   {"category": "lineup", "statement": "Muhtemel 11 açıklandı", "verification_status": "unknown"},
+                   {"category": "bogus", "statement": "Kategori dışı", "verification_status": "weird"},
+                   {"category": "form", "statement": ""}, "not-a-dict"],
+               "lineup_assessment": {"lineup_status": "predicted"}, "risks": ["Rotasyon riski", 7, "  Hava  "]}
+
+    def setUp(self):
+        super().setUp()
+        from app import research_store
+        env = patch.dict("os.environ", {"RESEARCH_UI_OWNER": "grokbot"})
+        env.start()
+        self.addCleanup(env.stop)
+        import os
+        os.environ.pop("RESEARCH_DATABASE_URL", None)
+        research_store.initialize_local()
+        ga._research_cache.clear()
+        self.store = research_store
+
+    def insert_report(self, mid, payload, *, owner="grokbot", report_id="r1", revision=1, received="2026-11-14T08:00:00+00:00"):
+        with self.store.session() as conn:
+            conn.execute("INSERT INTO research_jobs(id,owner_id,match_id,mode,status,deadline,input_version,context_json,"
+                         "request_id,created_at) VALUES(?,?,?,?,?,?,?,?,?,?)",
+                         (f"j-{report_id}-{revision}", owner, mid, "full", "completed", "2026-11-14T18:00:00+00:00", "v", "{}", f"req-{revision}", received))
+            conn.execute("INSERT INTO research_reports(id,owner_id,match_id,mode,created_at) VALUES(?,?,?,?,?) "
+                         "ON CONFLICT(id) DO NOTHING", (report_id, owner, mid, "full", received))
+            conn.execute("INSERT INTO research_report_revisions(id,report_id,revision,job_id,idempotency_key,payload_hash,"
+                         "payload_json,received_at,researched_at,skill_version,freshness_status,validation_status) "
+                         "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)",
+                         (f"{report_id}-{revision}", report_id, revision, f"j-{report_id}-{revision}", "k", "h",
+                          json.dumps(payload), received, received, "football-match-intel/1.0", "current", "schema_valid"))
+
+    def test_note_is_compact_sanitized_and_puts_confirmed_injuries_first(self):
+        note = ga.research_note(self.PAYLOAD, "ae3d6028", 1, "2026-11-14T08:00:00+00:00")
+        self.assertEqual(note["summary"], "Espanyol'da iki eksik var.")
+        self.assertEqual([f["category"] for f in note["findings"]], ["injury", "lineup", "news", "other"])
+        self.assertEqual(note["findings"][0], {"category": "injury", "status": "confirmed", "statement": "Stoper sakat", "team": "Espanyol"})
+        self.assertEqual(note["findings"][3]["status"], "unknown")
+        self.assertEqual((note["findings_count"], note["sources"], note["lineup_status"]), (4, 2, "predicted"))
+        self.assertEqual(note["risks"], ["Rotasyon riski", "Hava"])
+        self.assertNotIn("p", note)
+        many = {"findings": [{"category": "news", "statement": f"n{i}"} for i in range(10)]}
+        self.assertEqual(len(ga.research_note(many, "x", 1, None)["findings"]), ga.RESEARCH_FINDINGS)
+
+    def test_notes_match_plain_and_iddaa_ids_prefer_latest_revision_and_ignore_other_owners(self):
+        self.insert_report("iddaa:b1", {**self.PAYLOAD, "summary": "eski"}, report_id="r1", revision=1)
+        self.insert_report("iddaa:b1", {**self.PAYLOAD, "summary": "yeni"}, report_id="r1", revision=2, received="2026-11-14T08:30:00+00:00")
+        self.insert_report("s1", self.PAYLOAD, report_id="r2")
+        self.insert_report("s2", self.PAYLOAD, owner="grok-prod", report_id="r3")
+        notes = ga.research_notes(["b1", "s1", "s2", "zz"], now=NOW)
+        self.assertEqual(set(notes), {"b1", "s1"})
+        self.assertEqual((notes["b1"]["summary"], notes["b1"]["revision"], notes["b1"]["report_id"]), ("yeni", 2, "r1"))
+        with patch.object(self.store, "session", side_effect=AssertionError("cached")):
+            self.assertEqual(ga.research_notes(["s2", "b1", "s1", "zz"], now=NOW)["s1"]["report_id"], "r2")
+        with patch.dict("os.environ", {"RESEARCH_UI_OWNER": ""}), patch.object(self.store, "session", side_effect=AssertionError):
+            self.assertEqual(ga.research_notes(["b1"], now=NOW), {})
+        ga._research_cache.clear()
+        with patch.object(self.store, "session", side_effect=RuntimeError("no research db")):
+            self.assertEqual(ga.research_notes(["b1"], now=NOW), {})
+
+    def test_decorate_and_brief_carry_research_notes_without_changing_picks(self):
+        self.insert_report("b1", self.PAYLOAD, report_id="r1")
+        data = self.daily()
+        decorated = ga.decorate(data, now=NOW)
+        banko = decorated["banko"]
+        self.assertEqual(banko["researched_picks"], 1)
+        self.assertEqual(banko["picks"][0]["research"]["findings"][0]["statement"], "Stoper sakat")
+        self.assertEqual((banko["picks"][0]["odds"], banko["picks"][0]["p"]), (1.85, 0.5))
+        self.assertEqual(decorated["research"], {"reports": 1})
+        self.assertIsNone(decorated["grok_audit"])
+        self.assertNotIn("research", decorated["surprise"]["picks"][0])
+        self.assertEqual(decorated["banko_alternatives"][2]["picks"][0]["research"]["report_id"], "r1")
+        text = ga.brief(DAY, "daily", now=NOW, build=lambda d: built(d))
+        payload = json.loads(text.split("VERİ\n", 1)[1])
+        leg = payload["kuponlar"][0]["bacaklar"][0]
+        self.assertEqual(leg["arastirma"]["summary"], "Espanyol'da iki eksik var.")
+        self.assertNotIn("revision", leg["arastirma"])
+        self.assertIn('"arastirma" alanı', text)
+        self.assertNotIn("arastirma", json.dumps(payload["kuponlar"][1], ensure_ascii=False))
+
+
 if __name__ == "__main__":
     unittest.main()

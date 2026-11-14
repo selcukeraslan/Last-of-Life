@@ -126,16 +126,21 @@ veto'lu bacak varsa motor aynı türün veto'suz, henüz başlamamış ilk alter
 `surprise_grok` türüyle ayrı ölçer. Brief `GET /api/coupons/brief?kind=daily|lineup|weekly` (herkese açık),
 karar yönetici panelinden `POST /api/coupons/grok-audit` ile girilir. Kurulum ve şema: `docs/GROK_KUPON_DENETIMI.md`.
 
-**Grok Bot araştırma pilotu** (isteğe bağlı, Grok Bot aboneliği yeterli): günlük Actions köprüsü günün trio
-adaylarını `ai_research` kuyruğuna yazar ve Grok Bot rutinini webhook'la uyandırır; Bot kendi bulut bilgisayarından
-Research API ile claim → araştırma → rapor döngüsünü insan dokunmadan tamamlar. Kurulum: `docs/GROK_BOT_PILOT.md`.
+**Grok Bot araştırma pilotu** (isteğe bağlı, Grok Bot aboneliği yeterli): günlük Actions köprüsü günün **yayımlanan
+Banko/Sürpriz bacaklarını** (sonra alternatifleri; hiçbiri yoksa trio) `ai_research` kuyruğuna yazar; Grok Bot zamanlı rutini
+kendi bulut bilgisayarından Research API ile claim → araştırma → rapor döngüsünü insan dokunmadan tamamlar. Gelen şema-geçerli
+rapor, aynı maçın kupon bacağında **🔎 Araştırma notu** olarak görünür (bulgu sayısı, kadro durumu, doğrulanmış sakatlık/ceza
+önce; olasılık ve seçim değişmez) ve Grok denetim brief'ine `arastirma` alanı olarak girer. Kurulum: `docs/GROK_BOT_PILOT.md`.
 
 **Kupon Geçmişi** sekmesi: günün Banko ve Sürpriz kuponu (gün + tür başına bir kez, ilk üretildiği haliyle) `saved_coupons` /
 `saved_coupon_picks` tablolarına dondurulur — bugünün kuponu `/api/coupons` ile ilk üretildiğinde veya tam güncellemede
 (cron). Maç sonuçları gelince (hızlı ve tam güncelleme akışında) her seçim ve kupon `Tuttu` / `Yattı` / `Bekliyor` (`İptal`:
 ertelenen/iptal maç, oran 1.00) işaretlenir; tek seçim yattıysa kupon hemen yatmıştır. Sekmede banko tutma oranı, sürpriz
-tutma sayısı, "her gün her kupona 100 TL yatırsaydın" kâr/zarar + ROI (yalnız sonuçlanan kuponlar, kayıtlı oranla) ve günlük
-liste vardır. API: `GET /api/coupon-history?days=60`. Kod: `app/model/coupon_history.py`.
+tutma sayısı, "her gün her kupona 100 TL yatırsaydın" kâr/zarar + ROI (yalnız sonuçlanan kuponlar, kayıtlı oranla), **CLV**
+ve günlük liste vardır. CLV (closing line value) = kaydedilen oran / maçtan önce görülen son iddaa oranı − 1; her seçim
+başladıktan sonra `iddaa_odds_history` (dondurmada saklanan etkinlik kimliğiyle) ya da `odds_log` üzerinden
+`saved_coupon_picks.closing_odds` yazılır. Sürekli pozitif CLV, kâr küçük örneklemde şansa bağlı kalsa da seçimlerin piyasadan
+önce doğru yönü bulduğunu gösterir. API: `GET /api/coupon-history?days=60`. Kod: `app/model/coupon_history.py`.
 
 Web ve Telegram günün ilk kaydedilen Banko/Sürpriz kuponunu ortak kayıttan okur. Her kaydın
 `coupon_id` / `published_at` bilgisi vardır; sonradan hesaplanan alternatifler arayüzde ayrı etiketlenir.

@@ -153,24 +153,24 @@ class SettleTest(DbCase):
         self.freeze(day_coupons("2026-10-06", banko=[pick(1), pick(2, "Ü2.5")]))
         self.add_match(1, 2, 0)
         self.add_match(2, completed=False, status="STATUS_SCHEDULED")
-        self.assertEqual(self.settle(), {"picks": 1, "coupons": 0})
+        self.assertEqual(self.settle(), {"picks": 1, "coupons": 0, "closing": 0})
         banko = self.history()["days"][0]["banko"]
         self.assertEqual((banko["status"], [p["status"] for p in banko["picks"]]), ("pending", ["won", "pending"]))
         self.assertEqual((banko["picks"][0]["home_goals"], banko["picks"][0]["away_goals"]), (2, 0))
         self.assertIsNone(banko["profit"])
         with db.session() as conn:
             conn.execute("UPDATE matches SET completed=1, home_goals=2, away_goals=1 WHERE id='2'")
-        self.assertEqual(self.settle(), {"picks": 1, "coupons": 1})
+        self.assertEqual(self.settle(), {"picks": 1, "coupons": 1, "closing": 0})
         banko = self.history()["days"][0]["banko"]
         self.assertEqual(banko["status"], "won")
         self.assertIsNotNone(banko["settled_at"])
-        self.assertEqual(self.settle(), {"picks": 0, "coupons": 0})  # idempotent
+        self.assertEqual(self.settle(), {"picks": 0, "coupons": 0, "closing": 0})  # idempotent
 
     def test_one_lost_pick_loses_coupon_immediately(self):
         self.freeze(day_coupons("2026-10-06", banko=[pick(1), pick(2)]))
         self.add_match(1, 0, 1)
         self.add_match(2, completed=False, status="STATUS_SCHEDULED")
-        self.assertEqual(self.settle(), {"picks": 1, "coupons": 1})
+        self.assertEqual(self.settle(), {"picks": 1, "coupons": 1, "closing": 0})
         banko = self.history()["days"][0]["banko"]
         self.assertEqual((banko["status"], banko["profit"]), ("lost", -100.0))
 
@@ -178,14 +178,55 @@ class SettleTest(DbCase):
         self.freeze(day_coupons("2026-10-06", banko=[pick(1, odds=2.0), pick(2, odds=1.5), pick(3)]))
         self.add_match(1, 1, 0)
         self.add_match(2, completed=False, status="Postponed")
-        self.assertEqual(self.settle(), {"picks": 2, "coupons": 0})  # 3. maç kayıtlı değil, 2 günlük -> bekliyor
+        self.assertEqual(self.settle(), {"picks": 2, "coupons": 0, "closing": 0})  # 3. maç kayıtlı değil, 2 günlük -> bekliyor
         with db.session() as conn:
             conn.execute("UPDATE saved_coupon_picks SET kickoff=? WHERE match_id='3'",
                          ((datetime.now(timezone.utc) - timedelta(days=8)).strftime("%Y-%m-%dT%H:%MZ"),))
-        self.assertEqual(self.settle(), {"picks": 1, "coupons": 1})
+        self.assertEqual(self.settle(), {"picks": 1, "coupons": 1, "closing": 0})
         banko = self.history()["days"][0]["banko"]
         self.assertEqual({p["match_id"]: p["status"] for p in banko["picks"]}, {"1": "won", "2": "void", "3": "void"})
         self.assertEqual((banko["status"], banko["effective_odds"], banko["profit"]), ("won", 2.0, 100.0))
+
+
+class ClosingLineTest(DbCase):
+    """Kapanış oranı: etkinlik geçmişi (dondurmada kaydedilen iddaa etkinlik kimliğiyle) > odds_log; CLV özetlenir."""
+
+    def add_history(self, event_id, market, *quotes):
+        with db.session() as conn:
+            for odd, minutes_before in quotes:
+                at = (datetime.fromisoformat(OLD.replace("Z", "+00:00")) - timedelta(minutes=minutes_before)).isoformat()
+                conn.execute("INSERT INTO iddaa_odds_history(event_id, market, odd, captured_at, kickoff) VALUES(?,?,?,?,?)",
+                             (event_id, market, odd, at, OLD))
+
+    def test_settle_records_closing_from_event_history_then_odds_log_and_history_reports_clv(self):
+        with_event = {**pick(1, odds=1.85), "iddaa_event_id": "ev-1"}
+        self.freeze(day_coupons("2026-10-06", banko=[with_event, pick(2, "Ü2.5", odds=2.0)],
+                                surprise=[pick(3, "X", 3.2, 0.3), pick(4, "2", 2.5, 0.4)]))
+        # ESPN maç kimliği "1" için geçmiş yok, etkinlik kimliği "ev-1" için maçtan sonra (sayılmaz) ve önce kayıt var
+        self.add_history("ev-1", "1", (1.9, 600), (1.75, 30), (1.6, -5))
+        with db.session() as conn:
+            kickoff = datetime.fromisoformat(OLD.replace("Z", "+00:00"))
+            conn.execute("INSERT INTO odds_log(match_id, market, odd, first_odd, first_seen, updated_at) VALUES(?,?,?,?,?,?)",
+                         ("2", "Ü2.5", 2.2, 2.0, OLD, (kickoff - timedelta(minutes=10)).isoformat()))
+            conn.execute("INSERT INTO odds_log(match_id, market, odd, first_odd, first_seen, updated_at) VALUES(?,?,?,?,?,?)",
+                         ("3", "X", 3.0, 3.2, OLD, (kickoff + timedelta(minutes=10)).isoformat()))  # maçtan sonra: sayılmaz
+        self.add_match(1, 2, 0)
+        self.add_match(2, 1, 1)
+        self.add_match(3, completed=False, status="STATUS_POSTPONED")
+        self.assertEqual(self.settle(), {"picks": 3, "coupons": 1, "closing": 2})
+        h = self.history()
+        banko, surprise = h["days"][0]["banko"], h["days"][0]["surprise"]
+        self.assertEqual([(p["closing_odds"], p["clv"]) for p in banko["picks"]], [(1.75, round(1.85 / 1.75 - 1, 4)), (2.2, round(2.0 / 2.2 - 1, 4))])
+        self.assertEqual([p["closing_odds"] for p in surprise["picks"]], [None, None])
+        self.assertEqual((h["summary"]["banko"]["clv_picks"], h["summary"]["banko"]["clv_positive"]), (2, 1))
+        self.assertAlmostEqual(h["summary"]["banko"]["clv"], round(((1.85 / 1.75 - 1) + (2.0 / 2.2 - 1)) / 2, 4))
+        self.assertEqual((h["summary"]["surprise"]["clv_picks"], h["summary"]["surprise"]["clv"]), (0, None))
+        self.assertEqual(h["summary"]["total"]["clv_picks"], 2)
+        # Kapanışı bulunamayan seçim sonraki turda yeniden denenir; bulunanlar yeniden yazılmaz
+        self.add_history("4", "2", (2.8, 15))
+        self.assertEqual(self.settle()["closing"], 1)
+        self.assertEqual(self.history()["days"][0]["surprise"]["picks"][1]["closing_odds"], 2.8)
+        self.assertIsNone(ch.pick_clv({"status": "void", "odds": 2.0, "closing_odds": 1.5}))
 
 
 class HistoryTest(DbCase):
