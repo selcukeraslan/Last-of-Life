@@ -188,3 +188,12 @@ test("grok audit card summarises verdicts, swaps and renders the replacement cou
   assert.doesNotMatch(html, /Sürpriz · Grok sonrası alternatif/);
   assert.doesNotMatch(html, /undefined|NaN/);
 });
+
+test("coupon outcome: one lost leg loses, all won wins, live legs show progress, unresolved stays pending", () => {
+  assert.equal(CouponView.couponOutcome(["won", "lost", null]), "lost");
+  assert.equal(CouponView.couponOutcome(["won", "won"]), "won");
+  assert.equal(CouponView.couponOutcome(["won", "losing"]), "losing");
+  assert.equal(CouponView.couponOutcome(["won", "winning"]), "winning");
+  assert.equal(CouponView.couponOutcome(["won", null]), "pending");
+  assert.equal(CouponView.couponOutcome([null, null]), null);
+});

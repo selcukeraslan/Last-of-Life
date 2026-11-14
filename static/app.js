@@ -108,6 +108,7 @@ async function refreshLive() {
     window.Slip?.updateLive();
     if (state.tab === "slip") Slip.render();
     window.Extras?.onLive();
+    if (state.tab === "coupons") refreshCouponResults(state.couponReq);
     if (state.tab === "matches" && matchFilters.live && state.matchList) drawMatchList();
   } catch { if ($("#liveState")) $("#liveState").textContent = "Canlı skorlar güncellenemedi; son alınan veriler gösteriliyor."; }
 }
@@ -239,11 +240,42 @@ $("#bulletinDays").addEventListener("change",(event)=>{
   if(event.target.id === "bulletinDate" && /^\d{4}-\d{2}-\d{2}$/.test(event.target.value)) {setBulletinDay(event.target.value);}
 });
 
+const couponCache = new Map();
 async function renderCoupons() {
-  const el = $("#coupons"), req = ++state.couponReq;
-  el.innerHTML = `<p class="muted">Kuponlar hesaplanıyor…</p>`;
-  const d = await api(`/api/coupons?day=${state.couponDate}`,{cache:"no-store"});
+  const el = $("#coupons"), req = ++state.couponReq, day = state.couponDate;
+  const cached = couponCache.get(day);
+  // Sekmeye dönüşte son kupon hemen görünür; sunucu yanıtı arka planda tazelenir.
+  if (cached) drawCoupons(cached.data, req); else el.innerHTML = `<p class="muted">Kuponlar yükleniyor…</p>`;
+  let d;
+  try { d = await api(`/api/coupons?day=${day}`,{cache:"no-store"}); }
+  catch (error) { if (cached) return; throw error; }
   if (req !== state.couponReq) return; // daha yeni bir gün seçildi
+  const text = JSON.stringify(d);
+  if (cached?.text === text) return refreshCouponResults(req);
+  couponCache.set(day, {data:d, text});
+  drawCoupons(d, req);
+}
+
+const couponScores = new Map();
+async function refreshCouponResults(req) {
+  const el = $("#coupons");
+  const ids = [...new Set([...el.querySelectorAll("tr[data-coupon-leg]")].map((row) => row.dataset.couponLeg).filter(Boolean))];
+  if (!ids.length) return;
+  for (const [id, score] of state.live) if (ids.includes(id) || ids.includes(id.replace(/^iddaa:/, ""))) couponScores.set(id, score);
+  CouponView.applyResults(el, couponScores);
+  const pending = ids.filter((id) => couponScores.get(id)?.state !== "post");
+  for (let i = 0; i < pending.length; i += 30) {
+    try {
+      const query = new URLSearchParams(pending.slice(i, i + 30).map((id) => ["ids", id]));
+      const data = await api(`/api/results?${query}`, {cache:"no-store"});
+      for (const [id, score] of Object.entries(data.matches || {})) if (["in","post"].includes(score.state)) couponScores.set(id, score);
+    } catch (_) { /* sonuç servisi geçici hata verirse son durum korunur */ }
+  }
+  if (req === state.couponReq) CouponView.applyResults(el, couponScores);
+}
+
+function drawCoupons(d, req) {
+  const el = $("#coupons");
   const data = d && typeof d === "object" ? d : {};
   const dateText = data.date && !Number.isNaN(new Date(`${data.date}T12:00:00Z`).getTime())
     ? fmtDay(`${data.date}T12:00:00Z`) : "Gün bilgisi yok";
@@ -264,6 +296,7 @@ async function renderCoupons() {
     const coupon = CouponView.alternatives(data, type)[index];
     if (coupon?.picks?.length) window.CouponShare?.share({ title: button.closest(".coupon-card").querySelector("h3").textContent, date: data.date, picks: coupon.picks, totalOdds: coupon.total_odds }, button.parentElement.querySelector("[data-share-size]").value);
   }));
+  refreshCouponResults(req);
 }
 
 async function renderTable() {

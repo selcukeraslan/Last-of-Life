@@ -72,16 +72,17 @@
   function couponCard(coupon, title, badgeClass, share = null) {
     coupon = coupon && typeof coupon === "object" ? coupon : {};
     const picks = Array.isArray(coupon.picks) ? coupon.picks.filter((pick) => pick && typeof pick === "object") : [];
-    const rows = picks.map((pick) => `<tr>
+    const rows = picks.map((pick) => `<tr data-coupon-leg="${esc(pick.id ?? pick.match_id ?? "")}" data-market="${esc(pick.market || "")}">
       <td class="l" data-label="Maç"><b>${esc(pick.home || "Takım bilgisi yok")}</b> – ${esc(pick.away || "Takım bilgisi yok")}${grokBadge(pick)}${researchBadge(pick)}</td>
       <td data-label="Lig">${esc(pick.league_name || pick.league || "-")}</td>
       <td data-label="Saat">${esc(pickTime(pick.kickoff))}</td>
       <td data-label="Seçim"><span class="badge b-info">${esc({"1X":"ÇŞ 1–0","X2":"ÇŞ 0–2","12":"ÇŞ 1–2"}[pick.market] || pick.market || "-")}</span></td>
       <td data-label="Oran">${odds(pick)}</td>
       <td data-label="Olasılık">${probability(pick.p)}${pick.probability_source === "iddaa_market" ? "<small> · Piyasa</small>" : ""}</td>
+      <td data-label="Sonuç" class="leg-result"></td>
     </tr>`).join("");
     const content = picks.length
-      ? `<table><thead><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Olasılık</th></tr></thead><tbody>${rows}</tbody></table>`
+      ? `<table><thead><tr><th class="l">Maç</th><th>Lig</th><th>Saat</th><th>Seçim</th><th>Oran</th><th>Olasılık</th><th>Sonuç</th></tr></thead><tbody>${rows}</tbody></table>`
       : `<p class="muted">Bu kupon için uygun maç bulunamadı.</p>`;
     const totals = picks.length
       ? `<div class="coupon-total"><b>Toplam oran:</b> ${esc(displayNumber(coupon.total_odds))} · <b>Toplam tahmini olasılık:</b> ${probability(coupon.total_probability)}${coupon.stake_note ? `<details class="coupon-method"><summary>Seçim yöntemi</summary><p class="muted">${esc(coupon.stake_note)}</p></details>` : ""}</div>`
@@ -109,7 +110,7 @@
     const selectionNote = picks.length
       ? `<p class="coupon-selection-note"><b>${esc(tierLabel)}.</b> ${esc(targetNote)}</p>` : "";
     const research = coupon.type === "trio" && picks.length ? `<div class="coupon-research"><p class="muted">Grok bulguları ayrı risk bilgisidir; seçim olasılıkları değişmez. Araştırma iddiaları ayrıca doğrulanmalıdır.</p>${picks.map(pick => `<div data-grok-coupon-match="${esc(pick.id)}"><b>${esc(pick.home)} – ${esc(pick.away)}</b></div>`).join("")}</div>` : "";
-    return `<div class="card coupon-card"><div class="row-between"><h3>${esc(title)}</h3><span>${source(coupon, picks)} <span class="badge ${esc(badgeClass)}">${picks.length} maç</span></span></div>${selectionNote}${publication}${grokWarning}${calibrationNote}${content}${totals}${research}${shareActions}</div>`;
+    return `<div class="card coupon-card"><div class="row-between"><h3>${esc(title)} <span class="coupon-outcome"></span></h3><span>${source(coupon, picks)} <span class="badge ${esc(badgeClass)}">${picks.length} maç</span></span></div>${selectionNote}${publication}${grokWarning}${calibrationNote}${content}${totals}${research}${shareActions}</div>`;
   }
 
   function grokAuditCard(data) {
@@ -190,7 +191,39 @@
     return `<section class="coupon-group"><h3>${label} Kupon Alternatifleri</h3>${content}</section>`;
   }
 
-  const api = { alternatives, couponCard, couponGroup, emptyReason, grokAuditCard, grokBadge, researchBadge };
+  const LEG_TEXT = { won: "Kazandı", lost: "Kaybetti", winning: "Tutuyor", losing: "Tutmuyor" };
+  /** Bacak sonuçlarından kupon durumu: bir bacak kaybederse kupon kaybeder, hepsi kazanınca kazanır. */
+  function couponOutcome(legs) {
+    if (!legs.length || legs.every((leg) => !leg)) return null;
+    if (legs.includes("lost")) return "lost";
+    if (legs.every((leg) => leg === "won")) return "won";
+    if (legs.includes("losing")) return "losing";
+    return legs.includes("winning") ? "winning" : "pending";
+  }
+  /** Skorları ({id: {state, home_goals, away_goals, minute}}) kupon kartlarına işler. */
+  function applyResults(root, scores) {
+    const judge = (typeof window !== "undefined" && window.Simple?.pickOutcome) || (() => null);
+    root.querySelectorAll(".coupon-card").forEach((card) => {
+      const legs = [...card.querySelectorAll("tr[data-coupon-leg]")].map((row) => {
+        const score = scores.get(row.dataset.couponLeg) || scores.get("iddaa:" + row.dataset.couponLeg);
+        const outcome = judge(row.dataset.market, score);
+        const cell = row.querySelector(".leg-result");
+        row.classList.remove("leg-won", "leg-lost", "leg-winning", "leg-losing");
+        if (outcome) row.classList.add("leg-" + outcome);
+        if (cell) cell.innerHTML = score && outcome
+          ? `<span class="outcome-tag outcome-${outcome}">${LEG_TEXT[outcome]}</span> <small>${esc(score.home_goals)}–${esc(score.away_goals)}${score.state === "in" ? ` · ${esc(score.minute || "Canlı")}` : ""}</small>`
+          : "";
+        return outcome;
+      });
+      const outcome = couponOutcome(legs);
+      card.classList.remove("outcome-won", "outcome-lost", "outcome-winning", "outcome-losing", "outcome-pending");
+      if (outcome) card.classList.add("outcome-" + outcome);
+      const tag = card.querySelector(".coupon-outcome");
+      if (tag) tag.innerHTML = outcome ? `<span class="outcome-tag outcome-${outcome}">${{won: "Kupon kazandı", lost: "Kupon kaybetti", winning: "Devam ediyor · tutuyor", losing: "Devam ediyor · tutmuyor", pending: "Kalan maçların sonucu bekleniyor"}[outcome]}</span>` : "";
+    });
+  }
+
+  const api = { applyResults, couponOutcome, alternatives, couponCard, couponGroup, emptyReason, grokAuditCard, grokBadge, researchBadge };
   if (typeof module !== "undefined" && module.exports) module.exports = api;
   if (typeof window !== "undefined") window.CouponView = api;
 })();

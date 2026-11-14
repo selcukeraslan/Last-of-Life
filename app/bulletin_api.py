@@ -21,6 +21,12 @@ _LIST_HEAVY = {"markets", "factors", "extra_markets", "scores", "no_news_markets
 _CARD_ODDS = {"1", "X", "2"}
 
 
+def national_team(league) -> bool:
+    """Milli takım organizasyonu (Uluslar Ligi, elemeler, U19/U21...); kulüp hazırlık ve özel günlük bahisler hariç."""
+    league=str(league or '')
+    return league.startswith('small:int:') and not any(x in league for x in ('kuluplerarasi','gunluk-bahis'))
+
+
 def _list_item(item: dict) -> dict:
     """Bülten listesi: kart, 1-X-2 ve kupona eklenen tek seçim. Model matrisi yok."""
     needed = set()
@@ -107,7 +113,9 @@ def build_bulletin(day: date, category: str, league: str | None = None):
         days=sorted(set(bulletin_archive.available_days(conn)) |
                     {datetime.fromisoformat(t.replace('Z','+00:00')).astimezone(TZ).date().isoformat() for t in day_stamps})
     def belongs(event):
-        return (category=='all' or bool(event.get('is_small',str(event['league']).startswith('small:'))) == (category=='other')) and (not league or event['league']==league)
+        small=bool(event.get('is_small',str(event['league']).startswith('small:')))
+        if category=='main' and not league and national_team(event['league']):small=False  # milli maçlar ana listede
+        return (category=='all' or small == (category=='other')) and (not league or event['league']==league)
     events={}
     active=set()
     for row in raw:
@@ -157,7 +165,7 @@ def build_bulletin(day: date, category: str, league: str | None = None):
                                                 'country':item.get('country') or '','matches':[]})
         group['matches'].append(item)
     rank={key:i for i,key in enumerate(LEAGUE_ORDER)}
-    ordered=sorted(groups.values(),key=lambda g:(rank.get(g['league'],999),g['country'],g['name']))
+    ordered=sorted(groups.values(),key=lambda g:(rank.get(g['league'],500 if national_team(g['league']) else 999),g['country'],g['name']))
     for group in ordered:
         group['matches'].sort(key=lambda m:(-(m.get('confidence') or 0),m['kickoff'],m['id']))
         group['matches']=[_list_item(m) for m in group['matches']]
