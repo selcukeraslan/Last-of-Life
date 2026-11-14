@@ -117,6 +117,21 @@ test('live score replaces pending status while recorded prematch odds stay visib
  assert.match(Simple.pickBlock({...match,live_result:{...match.live_result,state:'post'}}),/Bitti/);
 });
 
+test('recorded pick is marked won/lost after the final and while the match is still live',()=>{
+ const post=(h,a)=>({state:'post',home_goals:h,away_goals:a}), live=(h,a)=>({state:'in',home_goals:h,away_goals:a});
+ assert.equal(Simple.pickOutcome('Ü2.5',post(1,0)),'lost');
+ assert.equal(Simple.pickOutcome('1X',post(1,1)),'won');
+ assert.equal(Simple.pickOutcome('Ü2.5',live(2,1)),'won');     // gol geri alınmaz
+ assert.equal(Simple.pickOutcome('A2.5',live(2,1)),'lost');
+ assert.equal(Simple.pickOutcome('1',live(0,1)),'losing');
+ assert.equal(Simple.pickOutcome('KG Yok',live(1,0)),'winning');
+ assert.equal(Simple.pickOutcome('Ü2.5',{state:'pre'}),null);
+ const match={kickoff:'2020-01-01T12:00Z',live_result:post(1,0),
+  prematch_recommendation:{kickoff:'2020-01-01T12:00Z',captured_at:'2020-01-01T09:29Z',pick:{market:'Ü2.5',odds:1.45,p:.57}}};
+ assert.equal(Simple.cardOutcome(match),'lost');
+ assert.match(Simple.historyBlock(match),/outcome-lost[^]*Kaybetti/);
+});
+
 test('no old recommendation is fabricated and a future record stays out of the history view',()=>{
  assert.match(Simple.historyBlock({kickoff:'2020-01-01T12:00Z'}),/kaydedilmiş maç öncesi öneri yok/);
  assert.equal(Simple.historyBlock({prematch_recommendation:{kickoff:'2099-01-01T12:00Z',pick:{market:'1',odds:1.8}}}), '');

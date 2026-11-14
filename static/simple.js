@@ -111,6 +111,32 @@
     return `<div class="pick-why"><b>En yüksek olasılık:</b> ${esc(headline(pick.market))} · ${(pick.p * 100).toFixed(0)}% · iddaa ${pick.odds.toFixed(2)}<br><span class="muted">Tahmini olasılık; garanti değil. Ana öneri dengeli seçimdir.</span></div>`;
   }
 
+  const RULES = {
+    "1": (h, a) => h > a, "X": (h, a) => h === a, "2": (h, a) => h < a,
+    "1X": (h, a) => h >= a, "12": (h, a) => h !== a, "X2": (h, a) => h <= a,
+    "KG Var": (h, a) => h > 0 && a > 0, "KG Yok": (h, a) => h === 0 || a === 0,
+  };
+  /** Kayıtlı maç öncesi önerinin skora göre durumu: won/lost kesin, winning/losing maç sürerken. */
+  function pickOutcome(market, live) {
+    if (!market || !live || !["in","post"].includes(live.state)) return null;
+    const h = live.home_goals, a = live.away_goals;
+    if (!Number.isInteger(h) || !Number.isInteger(a)) return null;
+    const line = /^([ÜA])(\d+(?:\.\d+)?)$/.exec(market);
+    const rule = RULES[market] || (line && ((x, y) => line[1] === "Ü" ? x + y > Number(line[2]) : x + y < Number(line[2])));
+    if (!rule) return null;
+    const hit = rule(h, a);
+    if (live.state === "post") return hit ? "won" : "lost";
+    // Gol geri alınmaz: üst/KG Var tuttuysa, alt/KG Yok bozulduysa sonuç maç bitmeden kesindir.
+    if (hit && (line?.[1] === "Ü" || market === "KG Var")) return "won";
+    if (!hit && (line?.[1] === "A" || market === "KG Yok")) return "lost";
+    return hit ? "winning" : "losing";
+  }
+  const OUTCOME_TEXT = { won: "Kazandı", lost: "Kaybetti", winning: "Şu an tutuyor", losing: "Şu an tutmuyor" };
+  function cardOutcome(m) {
+    const live = m.live_result, pick = m.prematch_recommendation?.pick;
+    return pickOutcome(pick?.market, live);
+  }
+
   function historyBlock(m) {
     const record=m.prematch_recommendation, pick=record?.pick;
     if (!pick || !pick.market || !Number.isFinite(pick.odds)) return Date.parse(m.kickoff)<=Date.now()
@@ -118,7 +144,9 @@
     if (Date.parse(record.kickoff) > Date.now() && !["in","post"].includes(m.live_result?.state)) return "";
     const captured=new Date(record.captured_at);
     const time=Number.isNaN(captured.getTime()) ? "" : captured.toLocaleString("tr-TR",{timeZone:"Europe/Istanbul",day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"});
-    return `<div class="prematch-history"><div class="hero-label">Maç öncesi öneri</div><div class="history-choice"><b>${esc(headline(pick.market))} · ${esc(title(pick.market))}</b><span>Kayıtlı oran <b>${pick.odds.toFixed(2)}</b></span></div>${Number.isFinite(pick.p) ? `<p>${Math.round(pick.p*100)}% ${pick.probability_source === "iddaa_market" ? "piyasa olasılığı" : "tahmini olasılık"}</p>` : ""}<small>${esc(time)} tarihinde kaydedildi. Güncel bahis fiyatı değildir.</small></div>`;
+    const outcome=pickOutcome(pick.market,m.live_result);
+    const status=outcome ? `<span class="outcome-tag outcome-${outcome}">${OUTCOME_TEXT[outcome]}${outcome === "won" && m.live_result.state === "in" ? " · maç sürüyor" : ""}</span>` : "";
+    return `<div class="prematch-history${outcome ? " outcome-"+outcome : ""}"><div class="hero-label">Maç öncesi öneri ${status}</div><div class="history-choice"><b>${esc(headline(pick.market))} · ${esc(title(pick.market))}</b><span>Kayıtlı oran <b>${pick.odds.toFixed(2)}</b></span></div>${Number.isFinite(pick.p) ? `<p>${Math.round(pick.p*100)}% ${pick.probability_source === "iddaa_market" ? "piyasa olasılığı" : "tahmini olasılık"}</p>` : ""}<small>${esc(time)} tarihinde kaydedildi. Güncel bahis fiyatı değildir.</small></div>`;
   }
 
   function mergeLiveScores(previous, incoming) {
@@ -130,5 +158,5 @@
     return merged;
   }
 
-  return { headline, title, info, levelBadge, oddsBox, pickBlock, strongestPickBlock, historyBlock, mergeLiveScores, confidenceLevel, sortMatches, filterMatches };
+  return { headline, title, info, levelBadge, oddsBox, pickBlock, strongestPickBlock, historyBlock, pickOutcome, cardOutcome, mergeLiveScores, confidenceLevel, sortMatches, filterMatches };
 });
