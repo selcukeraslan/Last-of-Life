@@ -22,6 +22,10 @@ from ..db import set_meta, get_meta
 
 EVENTS_URL = "https://sportsbookv2.iddaa.com/sportsbook/events?st=1&type=0&version=0"
 COMPETITIONS_URL = "https://sportsbookv2.iddaa.com/sportsbook/competitions"
+# iddaa canlı skor servisi: günün (TSİ) tüm futbol etkinlikleri ve skorları; bülten kimlikli seçimleri sonuçlandırır.
+RESULTS_URL = "https://statisticsv2.iddaa.com/live-results?sportId=1&date={date}"
+RESULT_FINISHED = frozenset({6, 10, 12})  # bitti: normal süre / uzatma / penaltılar
+RESULT_MAX_MINUTE = 100  # normal süre skoru ("r") yoksa "c" yalnız uzatmaya gitmemiş maçta güvenilir
 
 # iddaa competition id -> ESPN lig anahtarı. Kimlikler /sportsbook/competitions
 # yanıtındaki kalıcı futbol organizasyonu kimlikleridir.
@@ -352,6 +356,29 @@ def parse_event(raw: dict) -> dict | None:
         "min_matches": constraints,
         "quote_metadata": _quote_metadata(raw),
     }
+
+
+def parse_results(payload: dict) -> dict[str, tuple[int, int]]:
+    """Biten etkinliklerin normal süre skoru {etkinlik_id: (ev, dep)}.
+
+    "r" normal süre, "c" güncel (uzatma/penaltı dahil) skordur; alt liglerde yalnız "c" gelir ve
+    penaltılı maçta toplamı taşır (ör. 2-2 → 7-7), bu yüzden dakika sınırını aşan kayıt atlanır."""
+    results = {}
+    for event_id, score in ((payload.get("data") or {}).get("sc") or {}).items():
+        if score.get("s") not in RESULT_FINISHED:
+            continue
+        home, away = score.get("ht") or {}, score.get("at") or {}
+        if home.get("r") is not None and away.get("r") is not None:
+            results[str(event_id)] = (int(home["r"]), int(away["r"]))
+        elif (score.get("s") == 6 and home.get("c") is not None and away.get("c") is not None
+              and (score.get("min") or 0) <= RESULT_MAX_MINUTE):
+            results[str(event_id)] = (int(home["c"]), int(away["c"]))
+    return results
+
+
+def fetch_results(date: str, timeout: int = 10) -> dict[str, tuple[int, int]]:
+    """Verilen TSİ günü (YYYY-MM-DD) için biten maç skorları; ağ hatası RuntimeError."""
+    return parse_results(fetch_json(RESULTS_URL.format(date=date), timeout=timeout, retries=2))
 
 
 def small_league_key(country: str, competition: str) -> str:

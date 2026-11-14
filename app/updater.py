@@ -269,7 +269,7 @@ def _track_coupons(freeze: bool):
             if saved:
                 _progress(f"Kupon geçmişine kaydedildi: {', '.join(saved)}")
         with session() as conn:
-            done = coupon_history.settle(conn)
+            done = coupon_history.settle(conn, fetch_results=iddaa.fetch_results)
         if done["picks"] or done.get("closing"):
             _progress(f"Kupon sonuçları: {done['picks']} seçim, {done['coupons']} kupon sonuçlandı, "
                       f"{done.get('closing', 0)} seçime kapanış oranı yazıldı")

@@ -3,19 +3,23 @@
 * freeze(): kupon (gün, tür) başına bir kez, ilk üretildiği haliyle `saved_coupons` / `saved_coupon_picks`
   tablolarına yazılır; sonradan oranlar veya tahminler değişse de kayıt değişmez. Seçimi olmayan (boş)
   kupon kaydedilmez; gün içinde uygun kupon çıkarsa sonraki çalışmada kaydedilir.
-* settle(): biten maçlara göre her seçimi won / lost / void, kuponu da won / lost / pending / void yapar.
+* settle(): biten maçlara göre her seçimi won / lost / void, kuponu da won / lost / pending / void yapar;
+  ESPN eşleşmesi olmayan bülten bacaklarının skoru iddaa canlı sonuç servisinden alınır.
   Tek seçim yattıysa kupon hemen yatmıştır; ertelenen / iptal edilen maç oranı 1.00 sayılır (void).
 * history(): tutma oranı, "her gün KUPON_BASINA 100 TL" kâr/zarar + ROI, CLV ve günlük liste.
 * CLV (closing line value): kaydedilen oran / maçtan önce görülen son iddaa oranı − 1. Pozitifse piyasa
   bizim yönümüze hareket etmiştir; uzun vadede kârın en erken ve en güvenilir öncü göstergesidir.
 """
 import json
+import logging
 from datetime import datetime, timedelta, timezone
 
 from ..db import get_meta, set_meta
 
 from .coupons import TZ, build_coupons
 from .settlement import outcome, selection_state, SUPPORTED_MARKETS
+
+log = logging.getLogger(__name__)
 
 STAKE = 100.0  # simülasyon: her gün, her kupona yatırılan TL
 KINDS = ("banko", "surprise")
@@ -203,15 +207,44 @@ def record_closing(conn, now: datetime | None = None) -> int:
     return done
 
 
-def settle(conn) -> dict:
+RESULT_DELAY = timedelta(hours=2)  # maç bitmiş olmalı; erken sorgu bir sonraki turda yinelenir
+RESULT_WINDOW = timedelta(days=3)  # iddaa canlı sonuç servisi yalnız son ~3 günü verir (öncesi HTTP 400)
+
+
+def iddaa_results(rows, fetch, now: datetime) -> dict[str, tuple[int, int]]:
+    """ESPN skoru olmayan, başlayalı en az RESULT_DELAY geçmiş seçimlerin TSİ günleri için iddaa skorları.
+    fetch(gün) → {etkinlik_id: (ev, dep)}; bir günün hatası diğerlerini durdurmaz."""
+    if fetch is None:
+        return {}
+    days = set()
+    for r in rows:
+        kickoff = datetime.fromisoformat(r["kickoff"].replace("Z", "+00:00"))
+        if not r["completed"] and now - RESULT_WINDOW <= kickoff <= now - RESULT_DELAY:
+            days.add(kickoff.astimezone(TZ).date().isoformat())
+    results = {}
+    for day in sorted(days):
+        try:
+            results.update(fetch(day))
+        except Exception as exc:
+            log.warning("iddaa sonuçları alınamadı (%s): %s", day, exc)
+    return results
+
+
+def settle(conn, fetch_results=None) -> dict:
     """Biten maçlara göre bekleyen seçimleri ve kuponları işaretler, başlamış seçimlere kapanış oranını yazar.
+    fetch_results verilirse ESPN eşleşmesi olmayan bacaklar iddaa skoruyla sonuçlanır (bkz. iddaa_results).
     {"picks": n, "coupons": n, "closing": n} döner."""
-    rows = conn.execute(
+    rows = [dict(r) for r in conn.execute(
         "SELECT p.day, p.kind, p.match_id, p.market, p.kickoff, m.completed, m.home_goals, m.away_goals, "
         "m.status AS match_status FROM saved_coupon_picks p LEFT JOIN matches m ON m.id = p.match_id "
-        "WHERE p.status = 'pending'").fetchall()
+        "WHERE p.status = 'pending'").fetchall()]
+    results, cache = iddaa_results(rows, fetch_results, _now()), {}
     touched, picks_done = set(), 0
     for r in rows:
+        if results and not r["completed"]:
+            event_id = _event_ids(conn, cache, r["day"], r["kind"]).get((r["match_id"], r["market"])) or r["match_id"]
+            if score := results.get(str(event_id)):
+                r.update(completed=1, home_goals=score[0], away_goals=score[1])
         status, hg, ag = _pick_outcome(r)
         if status == "pending":
             continue
