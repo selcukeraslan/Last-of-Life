@@ -47,6 +47,16 @@ class DailyBulletinTest(unittest.TestCase):
         self.assertEqual(detail['id'],'iddaa:a')
         self.assertEqual(detail['iddaa_odds']['2'],4.0)
 
+    def test_national_team_matches_join_main_list_right_after_main_leagues(self):
+        self.event('nl','small:int:uefa-uluslar-ligi','2026-10-25T17:00:00+00:00',True)
+        self.event('aa','small:ar:arjantin','2026-10-25T13:00:00+00:00',True)
+        self.event('fr','small:int:kuluplerarasi-hazirlik-maclari','2026-10-25T12:00:00+00:00',True)
+        self.event('main','tur.1','2026-10-25T17:00:00+00:00')
+        self.assertEqual([g['league'] for g in build_bulletin(date(2026,10,25),'main')['groups']],
+                         ['tur.1','small:int:uefa-uluslar-ligi'])
+        self.assertEqual([g['league'] for g in build_bulletin(date(2026,10,25),'all')['groups']][:2],
+                         ['tur.1','small:int:uefa-uluslar-ligi'])
+
     def test_list_drops_model_bulk_but_keeps_the_card_pick(self):
         with db.session() as c:
             c.execute("INSERT INTO matches(id,league,kickoff,home,away,completed) VALUES('future','tur.1','2099-01-02T17:00:00+00:00','Ev','Dep',0)")
