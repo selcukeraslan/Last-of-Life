@@ -1,6 +1,6 @@
 import unittest
 
-from app.scrapers.iddaa import match_event, normalize_team, parse_event
+from app.scrapers.iddaa import match_event, normalize_team, parse_event, parse_results
 
 
 class IddaaScraperTests(unittest.TestCase):
@@ -162,3 +162,17 @@ def test_turkish_and_german_aliases_match_espn_names():
              ("İstanbul Başakşehir", "Istanbul Basaksehir")]
     for a, b in pairs:
         assert iddaa.team_similarity(a, b) == 1.0, (a, b)
+
+
+class ParseResultsTests(unittest.TestCase):
+    def test_regular_time_score_wins_and_untrusted_rows_are_skipped(self):
+        payload = {"isSuccess": True, "data": {"sc": {
+            "1": {"s": 10, "ht": {"r": 2, "c": 3, "et": 1}, "at": {"r": 2, "c": 2}},        # uzatma: normal süre 2-2
+            "2": {"s": 12, "ht": {"r": 1, "c": 1, "pe": 2}, "at": {"r": 1, "c": 1, "pe": 3}},  # penaltılar: 1-1
+            "3": {"s": 6, "ht": {"c": 0}, "at": {"c": 2}, "min": 93},                      # alt lig, yalnız "c"
+            "4": {"s": 6, "ht": {"c": 7}, "at": {"c": 7}, "min": 103},                     # penaltı toplamı taşıyor: atla
+            "5": {"s": 1, "ht": {"r": 1, "c": 1}, "at": {"r": 0, "c": 0}, "min": 55},      # sürüyor: atla
+            "6": {"s": 6, "ht": {}, "at": {}},                                              # skor yok: atla
+        }}}
+        self.assertEqual(parse_results(payload), {"1": (2, 2), "2": (1, 1), "3": (0, 2)})
+        self.assertEqual(parse_results({"isSuccess": True, "data": {}}), {})

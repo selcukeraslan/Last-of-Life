@@ -298,3 +298,70 @@ class UpdaterIntegrationTest(DbCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class IddaaResultTest(DbCase):
+    """Bülten kimlikli (ESPN eşleşmesiz) bacaklar iddaa canlı sonuç servisiyle sonuçlanır; eski Handikap pazarı okunur."""
+
+    def test_settle_grades_bulletin_legs_from_iddaa_results(self):
+        calls = []
+
+        def fetch(day):
+            calls.append(day)
+            if day == datetime.fromisoformat(OLD.replace("Z", "+00:00")).astimezone(ch.TZ).date().isoformat():
+                return {"3294853": (3, 1), "3294309": (0, 0)}
+            return {}
+
+        self.freeze(day_coupons("2026-10-06", banko=[pick("3294853", "Ü3.5", odds=1.67), pick("3294309", "12", odds=1.1)],
+                                surprise=[pick("3300000", "A2.5", 2.4, 0.35), pick(7, "1", 1.5, 0.6)]))
+        self.add_match(7, 2, 0)
+        with db.session() as conn:
+            done = ch.settle(conn, fetch_results=fetch)
+        self.assertEqual((done["picks"], done["coupons"]), (3, 1))
+        self.assertEqual(len(calls), 1)  # aynı gün bir kez sorgulanır
+        h = self.history()["days"][0]
+        self.assertEqual(sorted((p["status"], p["home_goals"], p["away_goals"]) for p in h["banko"]["picks"]),
+                         [("lost", 0, 0), ("won", 3, 1)])  # 3-1 → Ü3.5 tuttu; 0-0 → "12" yattı
+        self.assertEqual(h["banko"]["status"], "lost")
+        self.assertEqual([p["status"] for p in h["surprise"]["picks"]], ["pending", "won"])  # skoru gelmeyen bekler
+        self.assertEqual(h["surprise"]["status"], "pending")
+
+    def test_settle_without_fetcher_or_with_failing_fetcher_keeps_waiting(self):
+        self.freeze(day_coupons("2026-10-06", banko=[pick("3294853", "Ü3.5", odds=1.67)]))
+        self.assertEqual(self.settle()["picks"], 0)
+
+        def boom(day):
+            raise RuntimeError("ağ yok")
+
+        with db.session() as conn:
+            self.assertEqual(ch.settle(conn, fetch_results=boom)["picks"], 0)
+        self.assertEqual(self.history()["days"][0]["banko"]["status"], "pending")
+
+    def test_frozen_event_id_bridges_espn_pick_to_iddaa_score(self):
+        self.freeze(day_coupons("2026-10-06", banko=[{**pick(1, "KG Var", odds=1.8), "iddaa_event_id": "555"}]))
+        self.add_match(1, completed=False, status="STATUS_SCHEDULED")  # ESPN skoru gecikmiş
+        with db.session() as conn:
+            done = ch.settle(conn, fetch_results=lambda day: {"555": (1, 1)})
+        self.assertEqual(done["picks"], 1)
+        self.assertEqual(self.history()["days"][0]["banko"]["status"], "won")
+
+    def test_picks_outside_the_service_window_are_not_queried(self):
+        old = (datetime.now(timezone.utc) - timedelta(days=5)).strftime("%Y-%m-%dT%H:%MZ")
+        fresh = (datetime.now(timezone.utc) - timedelta(minutes=30)).strftime("%Y-%m-%dT%H:%MZ")
+        self.freeze(day_coupons("2026-10-06", banko=[pick("111", "1", 1.5, 0.8, old), pick("222", "1", 1.5, 0.8, fresh)]))
+        calls = []
+        with db.session() as conn:
+            ch.settle(conn, fetch_results=lambda day: calls.append(day) or {})
+        self.assertEqual(calls, [])  # 5 gün önce servis dışı, 30 dk önce henüz bitmemiş
+
+    def test_legacy_handicap_market_is_graded_and_unknown_market_voids_after_timeout(self):
+        old = (datetime.now(timezone.utc) - timedelta(days=8)).strftime("%Y-%m-%dT%H:%MZ")
+        self.freeze(day_coupons("2026-10-01", banko=[pick(1, "Handikap -2 1", 1.9, 0.5, old), pick(2, "Handikap 2 2", 1.7, 0.6, old),
+                                                     pick(3, "İY A1.5", 1.3, 0.8, old)]))
+        self.add_match(1, 3, 0)
+        self.add_match(2, 1, 2)
+        self.add_match(3, 1, 0)
+        self.assertEqual(self.settle()["picks"], 3)
+        banko = self.history()["days"][0]["banko"]
+        self.assertEqual([p["status"] for p in banko["picks"]], ["won", "lost", "void"])
+        self.assertEqual(banko["status"], "lost")

@@ -135,7 +135,11 @@ rapor, aynı maçın kupon bacağında **🔎 Araştırma notu** olarak görün�
 **Kupon Geçmişi** sekmesi: günün Banko ve Sürpriz kuponu (gün + tür başına bir kez, ilk üretildiği haliyle) `saved_coupons` /
 `saved_coupon_picks` tablolarına dondurulur — bugünün kuponu `/api/coupons` ile ilk üretildiğinde veya tam güncellemede
 (cron). Maç sonuçları gelince (hızlı ve tam güncelleme akışında) her seçim ve kupon `Tuttu` / `Yattı` / `Bekliyor` (`İptal`:
-ertelenen/iptal maç, oran 1.00) işaretlenir; tek seçim yattıysa kupon hemen yatmıştır. Sekmede banko tutma oranı, sürpriz
+ertelenen/iptal maç, oran 1.00) işaretlenir; tek seçim yattıysa kupon hemen yatmıştır. ESPN'de olmayan bülten bacakları
+(küçük ligler, `small:` — motorun yalnız iddaa fiyatıyla seçtiği maçlar) iddaa canlı sonuç servisinden
+(`statisticsv2.iddaa.com/live-results`, yalnız son ~3 gün) normal süre skoruyla sonuçlanır; uzatma/penaltı toplamı taşıyan
+şüpheli skor atlanır, skor hiç gelmezse 7 gün sonra iptal. Aynı servis, dondurmada saklanan etkinlik kimliğiyle ESPN skoru
+geciken maçlar için de yedek kaynaktır. Sekmede banko tutma oranı, sürpriz
 tutma sayısı, "her gün her kupona 100 TL yatırsaydın" kâr/zarar + ROI (yalnız sonuçlanan kuponlar, kayıtlı oranla), **CLV**
 ve günlük liste vardır. CLV (closing line value) = kaydedilen oran / maçtan önce görülen son iddaa oranı − 1; her seçim
 başladıktan sonra `iddaa_odds_history` (dondurmada saklanan etkinlik kimliğiyle) ya da `odds_log` üzerinden
@@ -146,8 +150,9 @@ Web ve Telegram günün ilk kaydedilen Banko/Sürpriz kuponunu ortak kayıttan o
 `coupon_id` / `published_at` bilgisi vardır; sonradan hesaplanan alternatifler arayüzde ayrı etiketlenir.
 Otomatik kuponlarda yalnız tam maç skoruyla sonuçlandırılabilen pazarlar kullanılır; ilk yarı ve handikap
 pazarları otomatik seçilmez. Geçmiş ve Telegram aynı sonuç/iptal kurallarını kullanır: ertelenmiş/iptal
-durumu bir gün sonra, sonuç alınamayan maç yedi gün sonra iptal sayılır. Eski desteklenmeyen seçimler
-otomatik iade sayılmaz; geçmişte elle doğrulama uyarısıyla görünür.
+durumu bir gün sonra, sonuç alınamayan maç yedi gün sonra iptal sayılır. Eski motorun `Handikap L S` seçimleri
+(çizgi ev golüne eklenir, sonra 1/X/2 okunur) skorla sonuçlanır; skorla okunamayan başka bir eski pazar
+yedi günlük süre aşımıyla iptal olur, hemen iade sayılmaz.
 
 **Değerli Oranlar** sekmesi yaklaşan (başlamamış) maçlarda modelin olasılığını iddaa.com oranıyla karşılaştırır;
 EV = olasılık × oran − 1 > 0 olan seçimleri EV'ye göre sıralar (pazar, seçim, model %, iddaa oranı, örtük %,
